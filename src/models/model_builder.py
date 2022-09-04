@@ -2,7 +2,8 @@ import copy
 
 import torch
 import torch.nn as nn
-from pytorch_transformers import BertModel, BertConfig
+# from pytorch_transformers import BertModel, BertConfig
+from transformers import BertModel, BertConfig
 from torch.nn.init import xavier_uniform_
 
 from models.decoder import TransformerDecoder
@@ -121,15 +122,26 @@ class Bert(nn.Module):
             self.model = BertModel.from_pretrained('bert-base-uncased', cache_dir=temp_dir)
 
         self.finetune = finetune
-
-    def forward(self, x, segs, mask):
-        if(self.finetune):
-            top_vec, _ = self.model(x, segs, attention_mask=mask)
+    
+    def forward(self, input_ids, attention_mask=None, token_type_ids=None, **kwargs):
+        if (self.finetune):
+            outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids, **kwargs)
+            top_vec = outputs[0]
         else:
             self.eval()
             with torch.no_grad():
-                top_vec, _ = self.model(x, segs, attention_mask=mask)
+                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids, **kwargs)
+                top_vec = outputs[0]
         return top_vec
+
+    # def forward(self, x, segs, mask):
+    #     if(self.finetune):
+    #         top_vec, _ = self.model(x, segs, attention_mask=mask)
+    #     else:
+    #         self.eval()
+    #         with torch.no_grad():
+    #             top_vec, _ = self.model(x, segs, attention_mask=mask)
+    #     return top_vec
 
 
 class ExtSummarizer(nn.Module):
@@ -238,7 +250,7 @@ class AbsSummarizer(nn.Module):
         self.to(device)
 
     def forward(self, src, tgt, segs, clss, mask_src, mask_tgt, mask_cls):
-        top_vec = self.bert(src, segs, mask_src)
+        top_vec = self.bert(input_ids=src, token_type_ids=segs, attention_mask=mask_src)
         dec_state = self.decoder.init_decoder_state(src, top_vec)
         decoder_outputs, state = self.decoder(tgt[:, :-1], top_vec, dec_state)
         return decoder_outputs, None

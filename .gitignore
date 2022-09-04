@@ -1,0 +1,6 @@
+.venv*
+.vscode/
+**__pycache__/
+/models/
+/temp/
+keep_max_files.py

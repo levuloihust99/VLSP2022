@@ -7,6 +7,7 @@ import math
 
 import torch
 
+from tqdm import tqdm
 from tensorboardX import SummaryWriter
 
 from others.utils import rouge_results_to_str, test_rouge, tile
@@ -141,7 +142,7 @@ class Translator(object):
         # pred_results, gold_results = [], []
         ct = 0
         with torch.no_grad():
-            for batch in data_iter:
+            for batch in tqdm(data_iter):
                 if(self.args.recall_eval):
                     gold_tgt_len = batch.tgt.size(1)
                     self.min_length = gold_tgt_len + 20
@@ -317,7 +318,7 @@ class Translator(object):
             topk_log_probs = topk_scores * length_penalty
 
             # Resolve beam origin and true word ids.
-            topk_beam_index = topk_ids.div(vocab_size)
+            topk_beam_index = topk_ids.div(vocab_size, rounding_mode="trunc")
             topk_ids = topk_ids.fmod(vocab_size)
 
             # Map beam_index to batch_index in the flat representation.

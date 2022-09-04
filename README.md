@@ -179,3 +179,42 @@ python train.py  -task abs -mode train -bert_data_path BERT_DATA_PATH -dec_dropo
 * `MODEL_PATH` is the directory of saved checkpoints
 * use `-mode valiadte` with `-test_all`, the system will load all saved checkpoints and select the top ones to generate summaries (this will take a while)
 
+# Environment setup
+- Ubuntu 20.04
+- Python 3.8
+## Install Pyrouge
+Source: https://stackoverflow.com/questions/45894212/installing-pyrouge-gets-error-in-ubuntu
+### Step 1 : Install Pyrouge from source (not from pip)
+<pre>
+git clone https://github.com/bheinzerling/pyrouge
+cd pyrouge
+pip install -e .
+</pre>
+### Step 2 : Install official ROUGE script
+<pre>
+git clone https://github.com/andersjo/pyrouge.git rouge
+</pre>
+### Step 3 : Point Pyrouge to official rouge script
+<pre>
+pyrouge_set_rouge_path ~/pyrouge/rouge/tools/ROUGE-1.5.5/
+</pre>
+*The path given to pyrouge should be absolute path !*
+### Step 4 : Install libxml parser
+As mentioned in [this issue](https://github.com/bheinzerling/pyrouge/issues/8), you need to install libxml parser :
+<pre>
+sudo apt-get install libxml-parser-perl
+</pre>
+### Step 5 : Regenerate the Exceptions DB
+As mentioned in [this issue](https://github.com/bheinzerling/pyrouge/issues/8), you need to regenerate the Exceptions DB :
+<pre>
+cd rouge/tools/ROUGE-1.5.5/data
+rm WordNet-2.0.exc.db
+./WordNet-2.0-Exceptions/buildExeptionDB.pl ./WordNet-2.0-Exceptions ./smart_common_words.txt ./WordNet-2.0.exc.db
+</pre>
+### Step 6 : Run the tests
+<pre>
+python -m pyrouge.test
+</pre>
+
+> Ran 11 tests in 6.322s
+OK
