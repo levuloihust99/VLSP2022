@@ -172,7 +172,7 @@ class LabelSmoothingLoss(nn.Module):
 
         smoothing_value = label_smoothing / (tgt_vocab_size - 2)
         one_hot = torch.full((tgt_vocab_size,), smoothing_value)
-        one_hot[self.padding_idx] = 0
+        one_hot[self.padding_idx] = 0 # ignore_index = -100 give unexpected behavior, commented by Le Vu Loi, 13/09/2022
         self.register_buffer('one_hot', one_hot.unsqueeze(0))
         self.confidence = 1.0 - label_smoothing
 

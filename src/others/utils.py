@@ -112,6 +112,21 @@ def tile(x, count, dim=0):
         x = x.permute(perm).contiguous()
     return x
 
+def tile_equivalent(x, count, dim=0):
+    perm = list(range(len(x.size())))
+    if dim != 0:
+        perm[0], perm[dim] = perm[dim], perm[0]
+        x = x.permute(perm).contiguous()
+    out_size = list(x.size())
+    out_size[0] *= count
+    batch = x.size(0)
+    x = x.view(batch, -1) \
+         .repeat(1, count) \
+         .view(*out_size)
+    if dim != 0:
+        x = x.permute(perm).contiguous()
+    return x
+
 def rouge_results_to_str(results_dict):
     return ">> ROUGE-F(1/2/3/l): {:.2f}/{:.2f}/{:.2f}\nROUGE-R(1/2/3/l): {:.2f}/{:.2f}/{:.2f}\n".format(
         results_dict["rouge_1_f_score"] * 100,
