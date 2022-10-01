@@ -8,3 +8,5 @@ bert_data_cnndm_final/
 bert_data_cnndm_final.zip
 src/own/tests/
 data/
+*.pkl
+checkpoints/
