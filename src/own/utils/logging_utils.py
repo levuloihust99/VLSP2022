@@ -14,7 +14,7 @@ class ColorFormatter(logging.Formatter):
         return formatter.format(record)
 
 
-def add_color_formater(logger: logging.Logger):
+def add_color_formatter(logger: logging.Logger):
     handlers = logger.handlers
     for handler in handlers:
         handler.setFormatter(ColorFormatter())
