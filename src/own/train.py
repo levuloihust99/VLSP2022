@@ -188,9 +188,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         alpha=config.alpha,
         block_trigram=config.block_trigram)
     device = torch.device(f"cuda:{gpu_rank}" if gpu_rank != -1 else "cpu")
-    print(device)
     summarizer.to(device)
-    exit(0)
     if nb_gpu > 0:
         summarizer = DDP(summarizer, device_ids=[device], output_device=device)
     # model initialization />
@@ -227,11 +225,9 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
     checkpoint_path = glob.glob(f"{config.checkpoint_path}*")
     if len(checkpoint_path) > 0:
         checkpoint_path = sorted(checkpoint_path, key=lambda x: os.path.getctime(x), reverse=True)[0]
-    exit(0)
 
-    if os.path.exists(checkpoint_path): # checkpoint found
-        if gpu_rank <= 0:
-            logger.info("Loading checkpoint from '{}'.".format(checkpoint_path))
+    if checkpoint_path: # checkpoint found
+        logger.info("Loading checkpoint from '{}'.".format(checkpoint_path))
         saved_state = torch.load(checkpoint_path, map_location=lambda s, t: s)
         model_state = saved_state['model']
         summarizer.load_state_dict(model_state)
@@ -275,7 +271,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
 def run(rank, world_size, config: TrainingConfig, error_queue):
     try:
         dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
-
+        torch.cuda.set_device(rank)
         # setup logging
         if rank == 0:
             logging.basicConfig(level=logging.INFO)

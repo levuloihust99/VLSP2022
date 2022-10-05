@@ -34,6 +34,7 @@ class TrainingConfig(object):
         self.perform_validation = True
         self.gradient_accumulate_steps = 1
         self.save_checkpoint_steps = 1000
+        self.logging_steps = 50
         self.num_train_epochs = 50
         self.num_warmup_steps = 1000
         self.weight_decay = 0.0
@@ -55,7 +56,7 @@ class TrainingConfig(object):
             if k not in self.__dict__:
                 logger.warn("Unknown hparam " + k)
             self.__dict__[k] = v
-            if k in {'data_path', 'checkpoint_path'}:
+            if k in {'data_path', 'checkpoint_path', 'dev_data_path'}:
                 self.__dict__[k] = os.path.abspath(v)
     
     def override(self, **kwargs):

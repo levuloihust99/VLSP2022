@@ -3,6 +3,7 @@ import time
 import torch
 import logging
 
+from tqdm import tqdm
 from typing import Dict, Text, Optional, Any
 from torch.utils.data import DataLoader
 from torch.nn import CrossEntropyLoss
@@ -69,8 +70,7 @@ class SummarizerTrainer(object):
         self.best_checkpoint_name = best_checkpoint_name
         self.best_checkpoint_val_acc = best_checkpoint_val_acc
     
-    def save(self):
-        checkpoint_path = self.config.checkpoint_path
+    def save(self, cp_name):
         state = {
             'done_epochs': self.done_epochs,
             'done_steps': self.done_steps,
@@ -86,19 +86,20 @@ class SummarizerTrainer(object):
                 'val_accuracy': self.best_checkpoint_val_acc
             }
         }
-        logger.info("Saving checkpoint to {}".format(checkpoint_path))
-        checkpoint_dir = os.path.dirname(checkpoint_path)
+        checkpoint_dir = os.path.dirname(self.config.checkpoint_path)
+        saved_checkpoint_path = os.path.join(checkpoint_dir, cp_name)
+        logger.info("Saving checkpoint to {}".format(saved_checkpoint_path))
         all_checkpoints = os.listdir(checkpoint_dir)
         all_checkpoints = [os.path.join(checkpoint_dir, f) for f in all_checkpoints]
         best_cp_path = os.path.join(checkpoint_dir, self.best_checkpoint_name)
-        all_checkpoints = sorted(all_checkpoints, lambda x: os.path.getctime(x), reverse=True)
+        all_checkpoints = sorted(all_checkpoints, key=lambda x: os.path.getctime(x), reverse=True)
         kept_checkpoints = all_checkpoints[:self.config.keep_checkpoint_max] + [best_cp_path]
         
         for cp in all_checkpoints:
             if cp not in kept_checkpoints:
                 os.remove(cp)
 
-        torch.save(state, checkpoint_path)
+        torch.save(state, saved_checkpoint_path)
 
     def train(self):
         logger.info("************************ Start training ************************")
@@ -107,7 +108,12 @@ class SummarizerTrainer(object):
         
         rank = min(self.nb_gpu, 0)
         loss_fct = CrossEntropyLoss()
+        total_steps = len(self.data_loader) * self.config.num_train_epochs
+        logger.info("Total training steps: {}".format(total_steps))
+        per_epoch_steps = len(self.data_loader)
+        mark_time = time.perf_counter()
         for epoch in range(self.done_epochs, self.config.num_train_epochs):
+            logger.info("--------------------- EPOCH {}/{} ---------------------".format(epoch + 1, self.config.num_train_epochs))
             self.data_loader.sampler.seed(epoch + self.config.seed)
             for step, batch in enumerate(self.data_loader):
                 if step < self.done_steps:
@@ -137,34 +143,40 @@ class SummarizerTrainer(object):
                 loss = loss / self.config.gradient_accumulate_steps
                 loss.backward()
 
-                if (step + 1) % self.config.gradient_accumulate_steps == 0:
+                self.global_step += 1
+                self.done_steps += 1
+
+                if (step + 1) % self.config.logging_steps == 0:
+                    log_string = "\n\tStep {}/{}".format(step + 1, per_epoch_steps)
+                    log_string += "\n\tTime elapsed: {}s".format(time.perf_counter() - mark_time)
+                    mark_time = time.perf_counter()
+                    log_string += "\n\tLoss: {}\n".format(loss.item() * self.config.gradient_accumulate_steps)
+                    logger.info(log_string)
+
+                if self.global_step % self.config.gradient_accumulate_steps == 0:
                     self.optimizer.step()
                     self.number_of_updates += 1
                 
-                self.global_step += 1
-                self.done_steps += 1
-                
-                if (step + 1) % self.config.save_checkpoint_steps == 0:
+                if self.global_step % self.config.save_checkpoint_steps == 0:
                     accuracy = self.validate()
                     cp_name = os.path.basename(self.config.checkpoint_path) + f"_{self.ckpt_counter}.pt"
                     self.ckpt_counter += 1
                     if accuracy > self.best_checkpoint_val_acc:
                         self.best_checkpoint_val_acc = accuracy
                         self.best_checkpoint_name = cp_name
-                    self.save()
-
+                    self.save(cp_name)
+                
             self.done_steps = 0
             self.done_epochs += 1
 
     def validate(self):
-        if self.config.gpu_rank == 0:
-            logger.info("************************ Running validation ************************")
+        logger.info("************************ Running validation ************************")
         start_time = time.perf_counter()
         rank = min(self.nb_gpu, 0)
         total_n_tokens = 0
         total_n_correct = 0
         with torch.no_grad():
-            for step, batch in enumerate(self.dev_dataloader):
+            for batch in tqdm(self.dev_dataloader):
                 batch = TrainerHelper.chunk(batch, self.nb_gpu)
                 encoder_input_ids = batch['encoder_input_ids'][rank].to(self.device)
                 encoder_attention_mask = batch['encoder_attention_mask'][rank].to(self.device)
@@ -197,11 +209,10 @@ class SummarizerTrainer(object):
                     total_n_tokens += num_tokens
                     total_n_correct += n_correct
 
-        if self.config.gpu_rank == 0:
-            logger.info("Validation took: {}s".format(time.perf_counter() - start_time))
-            validation_result = (
-                "Total tokens = {} :: Total correct = {} :: Accuracy = {}"
-            ).format(total_n_tokens, total_n_correct, total_n_correct / total_n_tokens)
-            logger.info("****************** Validation results ******************\n{}".format(validation_result))
+        logger.info("Validation took: {}s".format(time.perf_counter() - start_time))
+        validation_result = (
+            "Total tokens = {} :: Total correct = {} :: Accuracy = {}"
+        ).format(total_n_tokens, total_n_correct, total_n_correct / total_n_tokens)
+        logger.info("****************** Validation results ******************\n{}".format(validation_result))
         
         return total_n_correct / total_n_tokens # return accuracy
