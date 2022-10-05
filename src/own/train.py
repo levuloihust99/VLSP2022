@@ -6,6 +6,7 @@ import logging
 import signal
 import argparse
 import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from .modeling.optimization import AbsSummarizerOptimizer, create_optimizers_and_schedulers
 from .modeling.summarizer import AbsSummarizer
@@ -163,6 +164,8 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         block_trigram=config.block_trigram)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     summarizer.to(device)
+    if nb_gpu > 0:
+        summarizer = DDP(summarizer, device_ids=[device], output_device=device)
     # model initialization />
 
     # < optimizer and scheduler
