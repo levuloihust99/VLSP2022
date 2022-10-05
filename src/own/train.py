@@ -19,12 +19,7 @@ from .modeling.model_builder.decoder import init_decoder
 from .modeling.tokenization import init_tokenizer
 from .utils.arguments import add_arguments
 from .utils.logging_utils import add_color_formatter
-
-
-def override_defaults(hparams, args):
-    for key in args:
-        hparams[key] = args[key]
-    return hparams
+from .utils.seeding import seed_everything
 
 
 class ErrorHandler(object):
@@ -63,64 +58,10 @@ class ErrorHandler(object):
         raise Exception(msg)
 
 
-def main():
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '29506'
-    parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
-    parser.add_argument("--hparams", default="{}")
-    add_arguments(parser)
-    args = parser.parse_args()
-
-    # < setup logging
-    logging.basicConfig(level=logging.INFO)
-    add_color_formatter(logging.root)
-    # setup logging />
-
-    # < config
-    if args.hparams.endswith(".json"):
-        with open(args.hparams, "r") as reader:
-            hparams = json.load(reader)
-    else:
-        hparams = json.loads(args.hparams)
-    args_json = copy.deepcopy(args.__dict__)
-    args_json.pop('hparams')
-    hparams = override_defaults(hparams, args_json)
-
-    config = TrainingConfig(**hparams)
-    nb_gpu = torch.cuda.device_count()
-    assert nb_gpu == 0 or config.batch_size % nb_gpu == 0, \
-        "Training with multi GPUs requires 'batch_size' to be divided by number of GPUs"
-    config.nb_gpu = nb_gpu
-    try:
-        saved_state = torch.load(config.checkpoint_path, map_location=lambda s, t: s)
-    except Exception:
-        saved_state = None
-    if saved_state:
-        used_params = saved_state['params']
-        config.override(**used_params)
-    assert config.save_checkpoint_steps % config.gradient_accumulate_steps == 0, \
-        "'save_checkpoint_steps' must be divided by 'gradient_accumulate_steps' for perfectly resuming training. \
-        Got save_checkpoint_steps={} and gradient_accumulate_steps={}".format(
-            config.save_checkpoint_steps, config.gradient_accumulate_steps)
-    logging.info(config.format())
-    # config />
-
-    if config.nb_gpu > 1:
-        mp = torch.multiprocessing.get_context('spawn')
-        error_queue = mp.SimpleQueue()
-        error_handler = ErrorHandler(error_queue=error_queue)
-        workers = []
-        for rank in range(config.nb_gpu):
-            worker = mp.Process(target=run, args=(rank, config.nb_gpu, config, error_queue), daemon=True)
-            workers.append(worker)
-            worker.start()
-            error_handler.add_child(worker.pid)
-        
-        for worker in workers:
-            worker.join()
-    else:
-        rank = -1 if config.nb_gpu == 0 else 0
-        setup_and_train(config=config, gpu_rank=rank, nb_gpu=config.nb_gpu)
+def override_defaults(hparams, args):
+    for key in args:
+        hparams[key] = args[key]
+    return hparams
 
 
 def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
@@ -273,6 +214,7 @@ def run(rank, world_size, config: TrainingConfig, error_queue):
     try:
         dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
         torch.cuda.set_device(rank)
+        seed_everything(config.seed)
         # setup logging
         if rank == 0:
             logging.basicConfig(level=logging.INFO)
@@ -284,6 +226,66 @@ def run(rank, world_size, config: TrainingConfig, error_queue):
     except Exception:
         import traceback
         error_queue.put((rank, traceback.format_exc()))
+
+
+def main():
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '29506'
+    parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
+    parser.add_argument("--hparams", default="{}")
+    add_arguments(parser)
+    args = parser.parse_args()
+
+    # < setup logging
+    logging.basicConfig(level=logging.INFO)
+    add_color_formatter(logging.root)
+    # setup logging />
+
+    # < config
+    if args.hparams.endswith(".json"):
+        with open(args.hparams, "r") as reader:
+            hparams = json.load(reader)
+    else:
+        hparams = json.loads(args.hparams)
+    args_json = copy.deepcopy(args.__dict__)
+    args_json.pop('hparams')
+    hparams = override_defaults(hparams, args_json)
+
+    config = TrainingConfig(**hparams)
+    nb_gpu = torch.cuda.device_count()
+    assert nb_gpu == 0 or config.batch_size % nb_gpu == 0, \
+        "Training with multi GPUs requires 'batch_size' to be divided by number of GPUs"
+    config.nb_gpu = nb_gpu
+    try:
+        saved_state = torch.load(config.checkpoint_path, map_location=lambda s, t: s)
+    except Exception:
+        saved_state = None
+    if saved_state:
+        used_params = saved_state['params']
+        config.override(**used_params)
+    assert config.save_checkpoint_steps % config.gradient_accumulate_steps == 0, \
+        "'save_checkpoint_steps' must be divided by 'gradient_accumulate_steps' for perfectly resuming training. \
+        Got save_checkpoint_steps={} and gradient_accumulate_steps={}".format(
+            config.save_checkpoint_steps, config.gradient_accumulate_steps)
+    logging.info(config.format())
+    # config />
+
+    if config.nb_gpu > 1:
+        mp = torch.multiprocessing.get_context('spawn')
+        error_queue = mp.SimpleQueue()
+        error_handler = ErrorHandler(error_queue=error_queue)
+        workers = []
+        for rank in range(config.nb_gpu):
+            worker = mp.Process(target=run, args=(rank, config.nb_gpu, config, error_queue), daemon=True)
+            workers.append(worker)
+            worker.start()
+            error_handler.add_child(worker.pid)
+        
+        for worker in workers:
+            worker.join()
+    else:
+        rank = -1 if config.nb_gpu == 0 else 0
+        setup_and_train(config=config, gpu_rank=rank, nb_gpu=config.nb_gpu)
 
 
 if __name__ == "__main__":
