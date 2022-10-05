@@ -186,7 +186,8 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         decoder_start_token_id=config.decoder_start_token_id,
         decoder_end_token_id=config.decoder_end_token_id,
         alpha=config.alpha,
-        block_trigram=config.block_trigram)
+        block_trigram=config.block_trigram,
+        use_encoder_embs=config.use_encoder_embs)
     device = torch.device(f"cuda:{gpu_rank}" if gpu_rank != -1 else "cpu")
     summarizer.to(device)
     if nb_gpu > 0:

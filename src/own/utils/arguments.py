@@ -18,3 +18,4 @@ def add_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--decoder-pretrained-path")
     parser.add_argument("--encoder-learning-rate", type=float)
     parser.add_argument("--decoder-learning-rate", type=float)
+    parser.add_argument("--use-encoder-embs", type=eval)

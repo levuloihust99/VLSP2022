@@ -15,6 +15,7 @@ class AbsSummarizer(nn.Module):
         decoder_end_token_id: int = 2,
         alpha: float = 0.95,
         block_trigram: bool = True,
+        use_encoder_embs: bool = True,
     ):
         super(AbsSummarizer, self).__init__()
         self.encoder = encoder
@@ -24,6 +25,11 @@ class AbsSummarizer(nn.Module):
         self.decoder_end_token_id = decoder_end_token_id
         self.alpha = alpha
         self.block_trgram = block_trigram
+
+        if use_encoder_embs:
+            decoder_embeddings = decoder.get_input_embeddings()
+            encoder_embeddings = encoder.get_input_embeddings()
+            decoder_embeddings.weight.data = encoder_embeddings.weight.data
     
     def forward(
         self,

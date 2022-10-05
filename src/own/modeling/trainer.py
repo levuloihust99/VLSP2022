@@ -177,6 +177,7 @@ class SummarizerTrainer(object):
         total_n_correct = 0
         with torch.no_grad():
             for batch in tqdm(self.dev_dataloader):
+                origin_batch = batch # DEBUG
                 batch = TrainerHelper.chunk(batch, self.nb_gpu)
                 encoder_input_ids = batch['encoder_input_ids'][rank].to(self.device)
                 encoder_attention_mask = batch['encoder_attention_mask'][rank].to(self.device)

@@ -62,6 +62,9 @@ class TransformersDecoder(nn.Module):
         logits = self.head(sequence_output)
         return TransformersDecoderOutput(logits=logits, past_key_values=outputs.past_key_values)
 
+    def get_input_embeddings(self):
+        return self.backbone.get_input_embeddings()
+
 
 def test():
     parser = argparse.ArgumentParser()

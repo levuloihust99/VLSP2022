@@ -14,11 +14,12 @@ class TrainingConfig(object):
         self.tokenizer_type = "bert"
         self.tokenizer_path = "bert-base-uncased"
         self.encoder_pretrained_path = "bert-base-uncased"
-        self.decoder_pretrained_path = "bert-base-uncased"
+        self.decoder_pretrained_path = None
         self.encoder_architecture = "bert"
         self.decoder_architecture = "bert"
         self.alpha = 0.95
         self.block_trigram = True
+        self.use_encoder_embs = True
 
         self.max_encoder_sequence_length = 512
         self.max_decoder_sequence_length = 512
