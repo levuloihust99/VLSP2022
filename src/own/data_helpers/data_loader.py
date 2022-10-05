@@ -20,17 +20,18 @@ def create_dataloader(
     training: bool = True
 ):
     dataset = ByteDataset(data_path, idx_record_size=6)
+    collate_fn = get_collate_fn(
+        max_encoder_sequence_length=max_encoder_sequence_length,
+        encoder_sep_token_id=encoder_sep_token_id,
+        encoder_pad_token_id=encoder_pad_token_id,
+        max_decoder_sequence_length=max_decoder_sequence_length,
+        decoder_end_token_id=decoder_end_token_id,
+        decoder_pad_token_id=decoder_pad_token_id,
+        use_segmentation=use_segmentation
+    )
     if training:
         sampler = ReproducibleRandomSampler(dataset)
-        collate_fn = get_collate_fn(
-            max_encoder_sequence_length=max_encoder_sequence_length,
-            encoder_sep_token_id=encoder_sep_token_id,
-            encoder_pad_token_id=encoder_pad_token_id,
-            max_decoder_sequence_length=max_decoder_sequence_length,
-            decoder_end_token_id=decoder_end_token_id,
-            decoder_pad_token_id=decoder_pad_token_id,
-            use_segmentation=use_segmentation
-        )
+
         data_loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, collate_fn=collate_fn)
     else:
         data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)

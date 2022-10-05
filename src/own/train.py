@@ -1,5 +1,6 @@
 import os
 import json
+import glob
 import copy
 import torch
 import logging
@@ -63,6 +64,8 @@ class ErrorHandler(object):
 
 
 def main():
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '29506'
     parser = argparse.ArgumentParser(argument_default=argparse.SUPPRESS)
     parser.add_argument("--hparams", default="{}")
     add_arguments(parser)
@@ -121,6 +124,10 @@ def main():
 
 
 def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
+    # < logging
+    logger = logging.getLogger(__name__)
+    # logging />
+
     # < tokenizer
     tokenizer = init_tokenizer(tokenizer_type=config.tokenizer_type,
                                 tokenizer_path=config.tokenizer_path)
@@ -144,6 +151,24 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
     total_steps = steps_per_epoch * config.num_train_epochs
     # data loader />
 
+    # < dev data loader
+    if config.perform_validation:
+        dev_data_loader = create_dataloader(
+            data_path=config.dev_data_path,
+            batch_size=config.valid_batch_size,
+            max_encoder_sequence_length=config.max_encoder_sequence_length,
+            encoder_sep_token_id=tokenizer.sep_token_id,
+            encoder_pad_token_id=tokenizer.pad_token_id,
+            max_decoder_sequence_length=config.max_decoder_sequence_length,
+            decoder_end_token_id=config.decoder_end_token_id,
+            decoder_pad_token_id=config.decoder_pad_token_id,
+            use_segmentation=config.use_segmentation,
+            training=False
+        )
+    else:
+        dev_data_loader = None
+    # dev data loader />
+
     # < model initialization
     encoder = init_encoder(
         architecture=config.encoder_architecture,
@@ -162,8 +187,10 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         decoder_end_token_id=config.decoder_end_token_id,
         alpha=config.alpha,
         block_trigram=config.block_trigram)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{gpu_rank}" if gpu_rank != -1 else "cpu")
+    print(device)
     summarizer.to(device)
+    exit(0)
     if nb_gpu > 0:
         summarizer = DDP(summarizer, device_ids=[device], output_device=device)
     # model initialization />
@@ -197,8 +224,15 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
     checkpoint_dir = os.path.dirname(config.checkpoint_path)
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
-    if os.path.exists(config.checkpoint_path): # checkpoint found
-        saved_state = torch.load(config.checkpoint_path, map_location=lambda s, t: s)
+    checkpoint_path = glob.glob(f"{config.checkpoint_path}*")
+    if len(checkpoint_path) > 0:
+        checkpoint_path = sorted(checkpoint_path, key=lambda x: os.path.getctime(x), reverse=True)[0]
+    exit(0)
+
+    if os.path.exists(checkpoint_path): # checkpoint found
+        if gpu_rank <= 0:
+            logger.info("Loading checkpoint from '{}'.".format(checkpoint_path))
+        saved_state = torch.load(checkpoint_path, map_location=lambda s, t: s)
         model_state = saved_state['model']
         summarizer.load_state_dict(model_state)
         optimizer_state = saved_state['optimizer']
@@ -224,6 +258,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         summarizer=summarizer,
         optimizer=optimizer,
         data_loader=data_loader,
+        dev_dataloader=dev_data_loader,
         config=config,
         device=device,
         gpu_rank=gpu_rank,
@@ -245,15 +280,7 @@ def run(rank, world_size, config: TrainingConfig, error_queue):
         if rank == 0:
             logging.basicConfig(level=logging.INFO)
             add_color_formatter(logging.root)
-        logger = logging.getLogger(__name__)
 
-        # setup torch
-        if rank >= 0:
-            torch.cuda.set_device(rank)
-        else:
-            assert not torch.cuda.is_available(), \
-                "CUDA is available but rank is {}".format(rank)
-        
         setup_and_train(config=config, gpu_rank=rank, nb_gpu=world_size)
     except KeyboardInterrupt:
         pass # killed by parent, do nothing

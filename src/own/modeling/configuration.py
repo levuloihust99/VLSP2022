@@ -10,6 +10,7 @@ class TrainingConfig(object):
         self.seed = 42
 
         self.data_path = None
+        self.dev_data_path = None
         self.tokenizer_type = "bert"
         self.tokenizer_path = "bert-base-uncased"
         self.encoder_pretrained_path = "bert-base-uncased"
@@ -29,6 +30,8 @@ class TrainingConfig(object):
         self.use_segmentation = True
         
         self.batch_size = 4
+        self.valid_batch_size = 16
+        self.perform_validation = True
         self.gradient_accumulate_steps = 1
         self.save_checkpoint_steps = 1000
         self.num_train_epochs = 50
@@ -42,6 +45,7 @@ class TrainingConfig(object):
         self.inter_encoder_learning_rate = 2e-5
 
         self.checkpoint_path = None
+        self.keep_checkpoint_max = 5
         self.nb_gpu = None
 
         self.override_defaults(**kwargs)
