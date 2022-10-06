@@ -190,24 +190,23 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         scheduler_state = saved_state['scheduler']
         optimizer.restore(optimizer_state, scheduler_state)
         number_of_updates = saved_state['number_of_updates']
-        global_step = saved_state['global_step']
         done_epochs = saved_state['done_epochs']
-        done_steps = saved_state['done_steps']
+        done_data_iterations = saved_state['done_data_iterations']
+        ckpt_counter = saved_state['ckpt_counter']
+        best_checkpoint_name = saved_state['best_checkpoint']['name']
+        best_checkpoint_val_acc = saved_state['best_checkpoint']['val_accuracy']
     else:
         number_of_updates = 0
-        global_step = 0
         done_epochs = 0
-        done_steps = 0
+        done_data_iterations = 0
+        ckpt_counter = 0
+        best_checkpoint_name = None
+        best_checkpoint_val_acc = 0.0
 
     # < DDP wrapper
     if nb_gpu > 1:
         summarizer = DDP(summarizer, device_ids=[device], output_device=device)
     # DDP wrapper />
-
-    steps_per_epoch = (len(data_loader.dataset) - 1) // config.batch_size + 1
-    assert global_step == (done_epochs * steps_per_epoch + done_steps), \
-        "Reproduction checking failed, the training may not be properly resumed."
-    # checkpoint restore />
 
     # < trainer
     trainer = SummarizerTrainer(
@@ -220,9 +219,11 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         gpu_rank=gpu_rank,
         nb_gpu=nb_gpu,
         done_epochs=done_epochs,
-        done_steps=done_steps,
-        global_step=global_step,
-        number_of_updates=number_of_updates
+        done_data_iterations=done_data_iterations,
+        number_of_updates=number_of_updates,
+        ckpt_counter=ckpt_counter,
+        best_checkpoint_name=best_checkpoint_name,
+        best_checkpoint_val_acc=best_checkpoint_val_acc
     )
     trainer.train()
     # trainer />

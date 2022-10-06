@@ -49,7 +49,6 @@ class SummarizerTrainer(object):
         nb_gpu: int,
         done_epochs: int = 0,
         done_data_iterations: int = 0,
-        global_step: int = 0,
         number_of_updates: int = 0,
         ckpt_counter: int = 0,
         best_checkpoint_name: Text = None,
@@ -65,7 +64,6 @@ class SummarizerTrainer(object):
         self.nb_gpu = nb_gpu
         self.done_epochs = done_epochs
         self.done_data_iterations = done_data_iterations
-        self.global_step = global_step
         self.number_of_updates = number_of_updates
         self.ckpt_counter = ckpt_counter,
         self.best_checkpoint_name = best_checkpoint_name
@@ -83,6 +81,7 @@ class SummarizerTrainer(object):
             'optimizer': {k: v.state_dict() for k, v in self.optimizer.optimizers.items()},
             'scheduler': {k: v.state_dict() for k, v in self.optimizer.schedulers.items()},
             'params': self.config.to_json(),
+            'ckpt_counter': self.ckpt_counter,
             'best_checkpoint': {
                 'name': self.best_checkpoint_name,
                 'val_accuracy': self.best_checkpoint_val_acc
