@@ -88,9 +88,9 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         saved_state = torch.load(checkpoint_path, map_location=lambda s, t: s)
         used_params = saved_state['params']
         config.override(**used_params)
-        logger.info(config.format())
     else:
         saved_state = None
+    logger.info(config.format())
     # load saved state />
 
     # < tokenizer
@@ -111,9 +111,9 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         use_segmentation=config.use_segmentation,
         training=True
     )
-    dataset_size = len(data_loader.dataset)
-    steps_per_epoch = (dataset_size - 1) // config.batch_size + 1
-    total_steps = steps_per_epoch * config.num_train_epochs
+    batches_per_epoch = len(data_loader)
+    total_batches = batches_per_epoch * config.num_train_epochs
+    total_updates = total_batches // config.gradient_accumulate_steps
     # data loader />
 
     # < dev data loader
@@ -160,7 +160,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
     # < optimizer and scheduler
     encoder_optimizer, encoder_scheduler = create_optimizers_and_schedulers(
         encoder,
-        total_steps=total_steps,
+        total_steps=total_updates,
         weight_decay=config.weight_decay,
         learning_rate=config.encoder_learning_rate,
         adam_epsilon=config.adam_epsilon,
@@ -169,7 +169,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
     )
     decoder_optimizer, decoder_scheduler = create_optimizers_and_schedulers(
         decoder,
-        total_steps=total_steps,
+        total_steps=total_updates,
         weight_decay=config.weight_decay,
         learning_rate=config.decoder_learning_rate,
         adam_epsilon=config.adam_epsilon,

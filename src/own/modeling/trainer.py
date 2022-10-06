@@ -65,17 +65,18 @@ class SummarizerTrainer(object):
         self.done_epochs = done_epochs
         self.done_data_iterations = done_data_iterations
         self.number_of_updates = number_of_updates
-        self.ckpt_counter = ckpt_counter,
+        self.ckpt_counter = ckpt_counter
         self.best_checkpoint_name = best_checkpoint_name
         self.best_checkpoint_val_acc = best_checkpoint_val_acc
-        self.total_updates = len(self.data_loader) * self.config.num_train_epochs
+        self.total_updates = len(self.data_loader) * self.config.num_train_epochs // \
+            self.config.gradient_accumulate_steps
         self._mark_time = None
     
     def save(self, cp_name):
         model = self.summarizer.module if hasattr(self.summarizer, 'module') else self.summarizer
         state = {
             'done_epochs': self.done_epochs,
-            'done_data_iteration': self.done_data_iteration,
+            'done_data_iterations': self.done_data_iterations,
             'number_of_updates': self.number_of_updates,
             'model': model.state_dict(),
             'optimizer': {k: v.state_dict() for k, v in self.optimizer.optimizers.items()},
@@ -92,7 +93,7 @@ class SummarizerTrainer(object):
         logger.info("Saving checkpoint to {}".format(saved_checkpoint_path))
         all_checkpoints = os.listdir(checkpoint_dir)
         all_checkpoints = [os.path.join(checkpoint_dir, f) for f in all_checkpoints]
-        best_cp_path = os.path.join(checkpoint_dir, self.best_checkpoint_name)
+        best_cp_path = os.path.join(checkpoint_dir, self.best_checkpoint_name if self.best_checkpoint_name is not None else "none")
         all_checkpoints = sorted(all_checkpoints, key=lambda x: os.path.getctime(x), reverse=True)
         kept_checkpoints = all_checkpoints[:self.config.keep_checkpoint_max] + [best_cp_path]
         
@@ -106,7 +107,7 @@ class SummarizerTrainer(object):
         self.number_of_updates += 1
 
         rank = max(self.gpu_rank, 0)
-        loss_fct = CrossEntropyLoss(reduction='sum')
+        loss_fct = CrossEntropyLoss(reduction='sum', label_smoothing=self.config.label_smoothing)
 
         step_stats = Statistics()
         for batch in batches:
@@ -136,7 +137,7 @@ class SummarizerTrainer(object):
             loss.backward()
 
             preds = torch.argmax(active_logits, dim=-1)
-            n_corrects = (preds == labels).sum().item()
+            n_corrects = (preds == active_labels).sum().item()
             batch_stats = Statistics(loss=loss_unnorm.item(),
                                 n_tokens=active_mask.sum().item(), n_corrects=n_corrects)
             step_stats.update(batch_stats)
@@ -153,8 +154,8 @@ class SummarizerTrainer(object):
             log_string = "\n\n\tUpdate {}/{}".format(self.number_of_updates, self.total_updates)
             log_string += "\n\tTime elapsed: {}s".format(time.perf_counter() - self._mark_time)
             self._mark_time = time.perf_counter()
-            log_string += "\n\tLoss: {} - Num tokens: {} - Num corrects = {}\n".format(
-                step_stats.loss, step_stats.n_tokens, step_stats.n_corrects)
+            log_string += "\n\tLoss: {} - Num tokens: {} - Num corrects = {} - Norm Loss: {} - Acc: {} - PPL: {}\n".format(
+                step_stats.loss, step_stats.n_tokens, step_stats.n_corrects, step_stats.loss / step_stats.n_tokens, step_stats.acc(), step_stats.ppl())
             logger.info(log_string)
         
         if self.number_of_updates % self.config.save_checkpoint_steps == 0:
@@ -169,8 +170,7 @@ class SummarizerTrainer(object):
     def train(self):
         logger.info("************************ Start training ************************")
         logger.info("Model has been trained for {} epochs and {} data iterations.".format(self.done_epochs, self.done_data_iterations))
-        logger.info("Global step: {} - Number of updates: {}".format(self.global_step, self.number_of_updates))
-        logger.info("Total updates: {}".format(self.total_updates))
+        logger.info("Total updates: {} - Number of updates: {}".format(self.total_updates, self.number_of_updates))
         self._mark_time = time.perf_counter()
 
         batches = []

@@ -1,3 +1,6 @@
+import math
+
+
 class Statistics(object):
     """Accumulator for metrics."""
 
@@ -10,3 +13,9 @@ class Statistics(object):
         self.loss += other.loss
         self.n_tokens += other.n_tokens
         self.n_corrects += other.n_corrects
+
+    def ppl(self):
+        return math.exp(self.loss / self.n_tokens)
+
+    def acc(self):
+        return self.n_corrects / self.n_tokens

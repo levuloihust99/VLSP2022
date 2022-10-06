@@ -6,6 +6,39 @@ logger = logging.getLogger(__name__)
 
 
 class TrainingConfig(object):
+    # params that must not be overriden when resuming training
+    must_kept_params = [
+        "seed",
+        "data_path",
+        "dev_data_path",
+        "tokenizer_type",
+        "tokenizer_path",
+        "encoder_pretrained_path"
+        "decoder_pretrained_path",
+        "encoder_architecture",
+        "decoder_architecture",
+        "alpha",
+        "block_trigram",
+        "use_encoder_embs",
+        "max_encoder_sequence_length",
+        "max_decoder_sequence_length",
+        "decoder_num_hidden_layers",
+        "decoder_start_token_id",
+        "decoder_end_token_id",
+        "decoder_sep_token_id",
+        "decoder_pad_token_id",
+        "use_segmentation",
+        "batch_size",
+        "num_train_epochs",
+        "weight_decay",
+        "adam_epsilon",
+        "beta1",
+        "beta2",
+        "max_grad_norm",
+        "checkpoint_path",
+        "keep_checkpoint_max"
+    ]
+
     def __init__(self, **kwargs):
         self.seed = 42
 
@@ -46,6 +79,7 @@ class TrainingConfig(object):
         self.encoder_learning_rate = 2e-5
         self.decoder_learning_rate = 2e-5
         self.inter_encoder_learning_rate = 2e-5
+        self.label_smoothing = 0.1
 
         self.checkpoint_path = None
         self.keep_checkpoint_max = 5
@@ -66,8 +100,8 @@ class TrainingConfig(object):
             if k not in self.__dict__:
                 logger.warning("Unknown param: '{}'".format(k))
             old_value = self.__dict__[k]
-            self.__dict__[k] = v
-            if old_value != v:
+            if old_value != v and k in self.must_kept_params:
+                self.__dict__[k] = v
                 logger.info("Override param '{}': {}  \u2b62  {}".format(k, old_value, v))
 
     def to_json(self):
