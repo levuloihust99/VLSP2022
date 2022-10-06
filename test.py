@@ -1,24 +1,16 @@
 import torch
-from transformers import BertConfig, BertModel
-from src.own.modeling.modeling_utils import recursive_apply
+from src.own.modeling.optimization import create_optimizers_and_schedulers
+from transformers import BertModel
 
-encoder = BertModel(BertConfig())
-decoder = BertModel(BertConfig(is_decoder=True, add_cross_attention=True))
-encoder_input_ids = torch.tensor([[1, 2, 3, 4, 5]])
-decoder_input_ids = torch.tensor([[1, 2, 3]])
 
-encoder_outputs = encoder(
-    input_ids=encoder_input_ids,
-    return_dict=True
-)
-encoder_hidden_states = encoder_outputs.last_hidden_state
-decoder_outputs = decoder(
-    input_ids=decoder_input_ids,
-    encoder_hidden_states=encoder_hidden_states,
-    use_cache=True,
-    return_dict=True
-)
+model = BertModel.from_pretrained("bert-base-uncased")
+optim, scheduler = create_optimizers_and_schedulers(model, total_steps=10000, weight_decay=0.1,
+    learning_rate=2e-5)
 
-past_key_values = decoder_outputs.past_key_values
-after = recursive_apply(past_key_values, fn=lambda x: x.reshape(-1))
-print("done")
+input_ids = torch.tensor([[1, 2, 3, 4, 5]])
+output = model(input_ids=input_ids, return_dict=True)
+sequence_output = output.last_hidden_state
+pooled_output = sequence_output[:, 0, :]
+pooled_output.sum().backward()
+
+optim.step()

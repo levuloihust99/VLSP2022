@@ -19,3 +19,4 @@ def add_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--encoder-learning-rate", type=float)
     parser.add_argument("--decoder-learning-rate", type=float)
     parser.add_argument("--use-encoder-embs", type=eval)
+    parser.add_argument("--max-grad-norm", type=float)

@@ -42,6 +42,7 @@ class TrainingConfig(object):
         self.adam_epsilon = 1e-8
         self.beta1 = 0.9
         self.beta2 = 0.999
+        self.max_grad_norm = 0.0
         self.encoder_learning_rate = 2e-5
         self.decoder_learning_rate = 2e-5
         self.inter_encoder_learning_rate = 2e-5
