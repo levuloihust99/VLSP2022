@@ -9,7 +9,6 @@ import argparse
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from .modeling.optimization import AbsSummarizerOptimizer, create_optimizers_and_schedulers
 from .modeling.summarizer import AbsSummarizer
 from .modeling.trainer import SummarizerTrainer
 from .modeling.configuration import TrainingConfig
@@ -20,6 +19,7 @@ from .modeling.tokenization import init_tokenizer
 from .utils.arguments import add_arguments
 from .utils.logging_utils import add_color_formatter
 from .utils.seeding import seed_everything
+from .modeling.optimization import AbsSummarizerOptimizer, create_optimizers_and_schedulers
 
 
 class ErrorHandler(object):
@@ -131,7 +131,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         use_encoder_embs=config.use_encoder_embs)
     device = torch.device(f"cuda:{gpu_rank}" if gpu_rank != -1 else "cpu")
     summarizer.to(device)
-    if nb_gpu > 0:
+    if nb_gpu > 1:
         summarizer = DDP(summarizer, device_ids=[device], output_device=device)
     # model initialization />
 

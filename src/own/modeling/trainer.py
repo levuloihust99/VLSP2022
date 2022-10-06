@@ -106,7 +106,7 @@ class SummarizerTrainer(object):
         logger.info("Model has been trained for {} epochs and {} steps.".format(self.done_epochs, self.done_steps))
         logger.info("Global step: {} - Number of updates: {}".format(self.global_step, self.number_of_updates))
         
-        rank = min(self.nb_gpu, 0)
+        rank = max(self.gpu_rank, 0)
         loss_fct = CrossEntropyLoss()
         total_steps = len(self.data_loader) * self.config.num_train_epochs
         logger.info("Total training steps: {}".format(total_steps))
@@ -172,7 +172,7 @@ class SummarizerTrainer(object):
     def validate(self):
         logger.info("************************ Running validation ************************")
         start_time = time.perf_counter()
-        rank = min(self.nb_gpu, 0)
+        rank = max(self.gpu_rank, 0)
         total_n_tokens = 0
         total_n_correct = 0
         with torch.no_grad():
