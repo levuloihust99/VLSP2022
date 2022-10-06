@@ -73,6 +73,26 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
     logger = logging.getLogger(__name__)
     # logging />
 
+    # < checkpoint finding
+    checkpoint_dir = os.path.dirname(config.checkpoint_path)
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+    checkpoint_path = glob.glob(f"{config.checkpoint_path}*")
+    if len(checkpoint_path) > 0:
+        checkpoint_path = sorted(checkpoint_path, key=lambda x: os.path.getctime(x), reverse=True)[0]
+    # checkpoint finding />
+
+    # < load saved state
+    if checkpoint_path: # checkpoint found
+        logger.info("Loading checkpoint from '{}'.".format(checkpoint_path))
+        saved_state = torch.load(checkpoint_path, map_location=lambda s, t: s)
+        used_params = saved_state['params']
+        config.override(**used_params)
+        logger.info(config.format())
+    else:
+        saved_state = None
+    # load saved state />
+
     # < tokenizer
     tokenizer = init_tokenizer(tokenizer_type=config.tokenizer_type,
                                 tokenizer_path=config.tokenizer_path)
@@ -163,16 +183,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
     # optimizer and scheduler />
 
     # < checkpoint restore
-    checkpoint_dir = os.path.dirname(config.checkpoint_path)
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
-    checkpoint_path = glob.glob(f"{config.checkpoint_path}*")
-    if len(checkpoint_path) > 0:
-        checkpoint_path = sorted(checkpoint_path, key=lambda x: os.path.getctime(x), reverse=True)[0]
-
-    if checkpoint_path: # checkpoint found
-        logger.info("Loading checkpoint from '{}'.".format(checkpoint_path))
-        saved_state = torch.load(checkpoint_path, map_location=lambda s, t: s)
+    if saved_state: # checkpoint found
         model_state = saved_state['model']
         summarizer.load_state_dict(model_state)
         optimizer_state = saved_state['optimizer']
@@ -262,18 +273,10 @@ def main():
     assert nb_gpu == 0 or config.batch_size % nb_gpu == 0, \
         "Training with multi GPUs requires 'batch_size' to be divided by number of GPUs"
     config.nb_gpu = nb_gpu
-    try:
-        saved_state = torch.load(config.checkpoint_path, map_location=lambda s, t: s)
-    except Exception:
-        saved_state = None
-    if saved_state:
-        used_params = saved_state['params']
-        config.override(**used_params)
     assert config.save_checkpoint_steps % config.gradient_accumulate_steps == 0, \
         "'save_checkpoint_steps' must be divided by 'gradient_accumulate_steps' for perfectly resuming training. \
         Got save_checkpoint_steps={} and gradient_accumulate_steps={}".format(
             config.save_checkpoint_steps, config.gradient_accumulate_steps)
-    logging.info(config.format())
     # config />
 
     if config.nb_gpu > 1:
