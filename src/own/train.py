@@ -65,6 +65,10 @@ def override_defaults(hparams, args):
 
 
 def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
+    # < seeding
+    seed_everything(config.seed)
+    # seeding />
+
     # < logging
     logger = logging.getLogger(__name__)
     # logging />
@@ -131,8 +135,6 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         use_encoder_embs=config.use_encoder_embs)
     device = torch.device(f"cuda:{gpu_rank}" if gpu_rank != -1 else "cpu")
     summarizer.to(device)
-    if nb_gpu > 1:
-        summarizer = DDP(summarizer, device_ids=[device], output_device=device)
     # model initialization />
 
     # < optimizer and scheduler
@@ -186,6 +188,11 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         done_epochs = 0
         done_steps = 0
 
+    # < DDP wrapper
+    if nb_gpu > 1:
+        summarizer = DDP(summarizer, device_ids=[device], output_device=device)
+    # DDP wrapper />
+
     steps_per_epoch = (len(data_loader.dataset) - 1) // config.batch_size + 1
     assert global_step == (done_epochs * steps_per_epoch + done_steps), \
         "Reproduction checking failed, the training may not be properly resumed."
@@ -214,7 +221,6 @@ def run(rank, world_size, config: TrainingConfig, error_queue):
     try:
         dist.init_process_group(backend="nccl", world_size=world_size, rank=rank)
         torch.cuda.set_device(rank)
-        seed_everything(config.seed)
         # setup logging
         if rank == 0:
             logging.basicConfig(level=logging.INFO)

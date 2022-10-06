@@ -71,13 +71,14 @@ class SummarizerTrainer(object):
         self.best_checkpoint_val_acc = best_checkpoint_val_acc
     
     def save(self, cp_name):
+        model = self.summarizer.module if hasattr(self.summarizer, 'module') else self.summarizer
         state = {
             'done_epochs': self.done_epochs,
             'done_steps': self.done_steps,
             'global_step': self.global_step,
             'number_of_updates': self.number_of_updates,
             'ckpt_counter': self.ckpt_counter,
-            'model': self.summarizer.state_dict(),
+            'model': model.state_dict(),
             'optimizer': {k: v.state_dict() for k, v in self.optimizer.optimizers.items()},
             'scheduler': {k: v.state_dict() for k, v in self.optimizer.schedulers.items()},
             'params': self.config.to_json(),
@@ -147,7 +148,7 @@ class SummarizerTrainer(object):
                 self.done_steps += 1
 
                 if (step + 1) % self.config.logging_steps == 0:
-                    log_string = "\n\tStep {}/{}".format(step + 1, per_epoch_steps)
+                    log_string = "\n\n\tStep {}/{}".format(step + 1, per_epoch_steps)
                     log_string += "\n\tTime elapsed: {}s".format(time.perf_counter() - mark_time)
                     mark_time = time.perf_counter()
                     log_string += "\n\tLoss: {}\n".format(loss.item() * self.config.gradient_accumulate_steps)
