@@ -95,18 +95,20 @@ class TrainingConfig(object):
         for k, v in kwargs.items():
             if k not in self.__dict__:
                 logger.warn("Unknown hparam " + k)
-            self.__dict__[k] = v
-            if k in {'data_path', 'checkpoint_path', 'dev_data_path'}:
-                self.__dict__[k] = os.path.abspath(v)
+            else:
+                self.__dict__[k] = v
+                if k in {'data_path', 'checkpoint_path', 'dev_data_path'}:
+                    self.__dict__[k] = os.path.abspath(v)
     
     def override(self, **kwargs):
         for k, v in kwargs.items():
             if k not in self.__dict__:
                 logger.warning("Unknown param: '{}'".format(k))
-            old_value = self.__dict__[k]
-            if old_value != v and k in self.must_kept_params:
-                self.__dict__[k] = v
-                logger.info("Override param '{}': {}  \u2b62  {}".format(k, old_value, v))
+            else:
+                old_value = self.__dict__[k]
+                if old_value != v and k in self.must_kept_params:
+                    self.__dict__[k] = v
+                    logger.info("Override param '{}': {}  \u2b62  {}".format(k, old_value, v))
 
     def to_json(self):
         return json.loads(json.dumps(self.__dict__))
