@@ -34,11 +34,11 @@ class TrainingConfig(object):
         "adam_epsilon",
         "beta1",
         "beta2",
-        "max_grad_norm",
+        "encoder_max_grad_norm",
+        "decoder_max_grad_norm",
         "checkpoint_path",
         "encoder_num_warmup_steps",
         "decoder_num_warmup_steps",
-        ""
     ]
 
     def __init__(self, **kwargs):
@@ -78,7 +78,8 @@ class TrainingConfig(object):
         self.adam_epsilon = 1e-8
         self.beta1 = 0.9
         self.beta2 = 0.999
-        self.max_grad_norm = 0.0
+        self.encoder_max_grad_norm = 0.0
+        self.decoder_max_grad_norm = 0.0
         self.encoder_learning_rate = 2e-5
         self.decoder_learning_rate = 2e-5
         self.inter_encoder_learning_rate = 2e-5

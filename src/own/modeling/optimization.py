@@ -31,19 +31,26 @@ class AbsSummarizerOptimizer(object):
         self,
         optimizers: Dict[Text, torch.optim.Optimizer],
         schedulers: Dict[Text, torch.optim.lr_scheduler._LRScheduler],
-        max_grad_norm: float = 0.0
+        encoder_max_grad_norm: float = 0.0,
+        decoder_max_grad_norm: float = 0.0
     ):
         self.optimizers = optimizers
         self.schedulers = schedulers
-        self.max_grad_norm = max_grad_norm
+        self.encoder_max_grad_norm = encoder_max_grad_norm
+        self.decoder_max_grad_norm = decoder_max_grad_norm
 
     def step(self):
-        for opt in self.optimizers.values():
-            if self.max_grad_norm:
+        for opt_name, opt in self.optimizers.items():
+            if opt_name == 'encoder' and self.encoder_max_grad_norm:
                 params = []
                 for param_group in opt.param_groups:
                     params.extend(param_group['params'])
-                torch.nn.utils.clip_grad_norm_(params, self.max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(params, self.encoder_max_grad_norm)
+            if opt_name == 'decoder' and self.decoder_max_grad_norm:
+                params = []
+                for param_group in opt.param_groups:
+                    params.extend(param_group['params'])
+                torch.nn.utils.clip_grad_norm_(params, self.decoder_max_grad_norm)
             opt.step()
             opt.zero_grad()
         for sche in self.schedulers.values():

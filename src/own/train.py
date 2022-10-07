@@ -178,7 +178,9 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
     )
     optimizer = AbsSummarizerOptimizer(
         optimizers={'encoder': encoder_optimizer, 'decoder': decoder_optimizer},
-        schedulers={'encoder': encoder_scheduler, 'decoder': decoder_scheduler}
+        schedulers={'encoder': encoder_scheduler, 'decoder': decoder_scheduler},
+        encoder_max_grad_norm=config.encoder_max_grad_norm,
+        decoder_max_grad_norm=config.decoder_max_grad_norm
     )
     # optimizer and scheduler />
 
