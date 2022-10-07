@@ -160,6 +160,7 @@ class SummarizerTrainer(object):
         
         if self.number_of_updates % self.config.save_checkpoint_steps == 0:
             accuracy = self.validate()
+            self.summarizer.train()
             cp_name = os.path.basename(self.config.checkpoint_path) + f"_{self.ckpt_counter}.pt"
             self.ckpt_counter += 1
             if accuracy > self.best_checkpoint_val_acc:
@@ -177,6 +178,7 @@ class SummarizerTrainer(object):
         normalization = 0
         num_accum = 0
         self._mark_time = time.perf_counter()
+        self.summarizer.train()
         for epoch in range(self.done_epochs, self.config.num_train_epochs):
             logger.info("--------------------- EPOCH {}/{} ---------------------".format(epoch + 1, self.config.num_train_epochs))
             self.data_loader.sampler.seed(epoch + self.config.seed)
@@ -206,6 +208,7 @@ class SummarizerTrainer(object):
         rank = max(self.gpu_rank, 0)
         total_n_tokens = 0
         total_n_correct = 0
+        self.summarizer.eval()
         with torch.no_grad():
             for batch in tqdm(self.dev_dataloader):
                 batch = TrainerHelper.chunk(batch, self.nb_gpu)

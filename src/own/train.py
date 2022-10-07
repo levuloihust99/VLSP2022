@@ -165,7 +165,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         learning_rate=config.encoder_learning_rate,
         adam_epsilon=config.adam_epsilon,
         betas=(config.beta1, config.beta2),
-        num_warmup_steps=config.num_warmup_steps
+        num_warmup_steps=config.encoder_num_warmup_steps
     )
     decoder_optimizer, decoder_scheduler = create_optimizers_and_schedulers(
         decoder,
@@ -174,7 +174,7 @@ def setup_and_train(config: TrainingConfig, gpu_rank: int, nb_gpu: int):
         learning_rate=config.decoder_learning_rate,
         adam_epsilon=config.adam_epsilon,
         betas=(config.beta1, config.beta2),
-        num_warmup_steps=config.num_warmup_steps
+        num_warmup_steps=config.decoder_num_warmup_steps
     )
     optimizer = AbsSummarizerOptimizer(
         optimizers={'encoder': encoder_optimizer, 'decoder': decoder_optimizer},

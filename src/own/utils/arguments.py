@@ -22,3 +22,6 @@ def add_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--max-grad-norm", type=float)
     parser.add_argument("--gradient-accumulate-steps", type=int)
     parser.add_argument("--label-smoothing", type=float)
+    parser.add_argument("--encoder-num-warmup-steps", type=int)
+    parser.add_argument("--decoder-num-warmup-steps", type=int)
+    parser.add_argument("--num-train-epochs", type=int)

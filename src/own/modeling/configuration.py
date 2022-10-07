@@ -70,7 +70,8 @@ class TrainingConfig(object):
         self.save_checkpoint_steps = 1000
         self.logging_steps = 50
         self.num_train_epochs = 50
-        self.num_warmup_steps = 1000
+        self.encoder_num_warmup_steps = 10000
+        self.decoder_num_warmup_steps = 20000
         self.weight_decay = 0.0
         self.adam_epsilon = 1e-8
         self.beta1 = 0.9
