@@ -36,7 +36,9 @@ class TrainingConfig(object):
         "beta2",
         "max_grad_norm",
         "checkpoint_path",
-        "keep_checkpoint_max"
+        "encoder_num_warmup_steps",
+        "decoder_num_warmup_steps",
+        ""
     ]
 
     def __init__(self, **kwargs):
