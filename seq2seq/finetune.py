@@ -51,7 +51,9 @@ def main(cfg: DictConfig):
         fp16=cfg.fp16,
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
         logging_steps=cfg.logging_steps,
-        logging_first_step=cfg.logging_first_step
+        logging_first_step=cfg.logging_first_step,
+        max_grad_norm=cfg.max_grad_norm,
+        label_smoothing_factor=cfg.label_smoothing_factor
     )
 
     trainer = Seq2SeqTrainer(
