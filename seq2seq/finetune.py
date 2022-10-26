@@ -30,29 +30,29 @@ def main(cfg: DictConfig):
         for line in reader:
             data.append(json.loads(line.strip()))
     dataset = Dataset.from_list(data)
-    tokenized_dataset = dataset.map(process_fn)
+    tokenized_dataset = dataset.map(process_fn, remove_columns=['document/input_ids', 'summary/input_ids'], batched=False)
 
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, return_tensors="pt")
     
     training_args = Seq2SeqTrainingArguments(
         "tmp/",
-        do_train=True,
-        do_eval=False,
-        num_train_epochs=3,
-        learning_rate=1e-5,
-        warmup_ratio=0.05,
-        weight_decay=0.01,
-        per_device_train_batch_size=1,
-        per_device_eval_batch_size=1,
-        logging_dir="./logs",
-        group_by_length=False,
-        save_strategy='epoch',
-        save_total_limit=3,
-        fp16=True,
-        gradient_accumulation_steps=5
+        do_train=cfg.do_train,
+        do_eval=cfg.do_eval,
+        num_train_epochs=cfg.num_train_epochs,
+        learning_rate=cfg.learning_rate,
+        warmup_ratio=cfg.warmup_ratio,
+        weight_decay=cfg.weight_decay,
+        per_device_train_batch_size=cfg.per_device_train_batch_size,
+        per_device_eval_batch_size=cfg.per_device_eval_batch_size,
+        logging_dir=cfg.logging_dir,
+        group_by_length=cfg.group_by_length,
+        save_strategy=cfg.save_strategy,
+        save_total_limit=cfg.save_total_limit,
+        fp16=cfg.fp16,
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps
     )
 
-    trainer = trainer = Seq2SeqTrainer(
+    trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
         train_dataset=tokenized_dataset,
