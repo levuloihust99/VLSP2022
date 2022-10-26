@@ -49,7 +49,9 @@ def main(cfg: DictConfig):
         save_strategy=cfg.save_strategy,
         save_total_limit=cfg.save_total_limit,
         fp16=cfg.fp16,
-        gradient_accumulation_steps=cfg.gradient_accumulation_steps
+        gradient_accumulation_steps=cfg.gradient_accumulation_steps,
+        logging_steps=cfg.logging_steps,
+        logging_first_step=cfg.logging_first_step
     )
 
     trainer = Seq2SeqTrainer(
