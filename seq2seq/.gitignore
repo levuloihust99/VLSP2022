@@ -3,3 +3,5 @@ logs/
 *.tsv
 conf/
 outputs/
+pretrained/
+/*.txt

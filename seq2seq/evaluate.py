@@ -6,23 +6,26 @@ from torch.utils.data import DataLoader
 
 model_name = "VietAI/vit5-base-vietnews-summarization" # or "VietAI/vit5-large-vietnews-summarization"
 tokenizer = AutoTokenizer.from_pretrained(model_name)  
-model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-model.to('cuda:1')
+model = AutoModelForSeq2SeqLM.from_pretrained("/media/lvloi/projects/vlsp-2022/seq2seq/pretrained/checkpoints/checkpoint-231")
+model.to('cuda:2')
+model.eval()
 
 from datasets import load_metric
 
 metric = load_metric("rouge")
 
 def preprocess_function(examples):
-    model_inputs = tokenizer(
-        examples["inputs"], max_length=1024, truncation=True, padding=True
-    )
+    # model_inputs = tokenizer(
+    #     examples["inputs"], max_length=2048, truncation=True, padding=True
+    # )
+    model_inputs = tokenizer(examples['inputs'])
 
     raw_inputs = tokenizer(examples['inputs'])
     
-    labels = tokenizer(
-        examples["labels"], max_length=256, truncation=True, padding=True
-    )
+    # labels = tokenizer(
+    #     examples["labels"], max_length=256, truncation=True, padding=True
+    # )
+    labels = tokenizer(examples['labels'])
     model_inputs['labels'] = labels['input_ids']
     model_inputs['input_ids'] = model_inputs['input_ids']
     model_inputs['raw_input_ids'] = raw_inputs.input_ids
@@ -68,10 +71,11 @@ for i, batch in enumerate(tqdm(dataloader)):
   min_len = int(doc_len / (3.6813 + 1.5))
   max_len = int(doc_len / (3.6813 - 1.5))
   outputs = model.generate(
-      input_ids=batch['input_ids'].to('cuda:1'),
-      max_length=max_len,
-      min_length=min_len,
-      attention_mask=batch['attention_mask'].to('cuda:1'),
+      input_ids=batch['input_ids'].to('cuda:2'),
+      # max_length=max_len,
+      # min_length=min_len,
+      max_length=256,
+      attention_mask=batch['attention_mask'].to('cuda:2'),
       num_beams=5,
       do_sample=True
   )

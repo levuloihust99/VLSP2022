@@ -10,3 +10,4 @@ src/own/tests/
 data/
 *.pkl
 checkpoints/
+pyrouge/
