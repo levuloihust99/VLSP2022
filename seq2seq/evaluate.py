@@ -6,8 +6,8 @@ from torch.utils.data import DataLoader
 
 model_name = "VietAI/vit5-base-vietnews-summarization" # or "VietAI/vit5-large-vietnews-summarization"
 tokenizer = AutoTokenizer.from_pretrained(model_name)  
-model = AutoModelForSeq2SeqLM.from_pretrained("/media/lvloi/projects/vlsp-2022/seq2seq/pretrained/checkpoints/checkpoint-231")
-model.to('cuda:2')
+model = AutoModelForSeq2SeqLM.from_pretrained("../checkpoints/checkpoint-231")
+model.to('cuda')
 model.eval()
 
 from datasets import load_metric
@@ -67,9 +67,9 @@ dataloader = torch.utils.data.DataLoader(tokenized_datasets, collate_fn=data_col
 predictions = []
 references = []
 for i, batch in enumerate(tqdm(dataloader)):
-  doc_len = len(batch['raw_input_ids'][0])
-  min_len = int(doc_len / (3.6813 + 1.5))
-  max_len = int(doc_len / (3.6813 - 1.5))
+  # doc_len = len(batch['raw_input_ids'][0])
+  # min_len = int(doc_len / (3.6813 + 1.5))
+  # max_len = int(doc_len / (3.6813 - 1.5))
   outputs = model.generate(
       input_ids=batch['input_ids'].to('cuda:2'),
       # max_length=max_len,
@@ -88,9 +88,9 @@ for i, batch in enumerate(tqdm(dataloader)):
   references.extend(actuals)
   metrics.add_batch(predictions=outputs, references=actuals)
 
-with open("logs/vlsp-2022/candidate.out", "w") as writer:
+with open("logs/candidate.out", "w") as writer:
   writer.write("\n".join(predictions))
-with open("logs/vlsp-2022/gold.out", "w") as writer:
+with open("logs/gold.out", "w") as writer:
   writer.write("\n".join(references))
 result = metrics.compute()
 print(result)
