@@ -1,5 +1,7 @@
+import json
+import argparse
 import torch
-from torch import nn
+from torch import maximum, nn
 from typing import Optional, Tuple
 import logging
 
@@ -20,10 +22,12 @@ def generate(
     block_trigram: bool = True,
     num_return_sequences: int = 1,
     do_sample: bool = False,
-    num_sampling: int = 32
+    num_sampling: int = 32,
+    max_candidates_per_beam: int = 0
 ):
     """Decoding process stops either when the output sequence length exceeds `max_length` or `num_return_sequences` hypotheses is reached."""
-
+    if max_candidates_per_beam == 0:
+        max_candidates_per_beam = beam_size
     decoder_end_token_id = tokenizer.eos_token_id
     if input_ids is None:
         assert inputs_embeds is not None, \
@@ -64,10 +68,7 @@ def generate(
     topk_log_probs = torch.tensor([0.0] + [float("-inf")] * (beam_size - 1)).repeat(batch_size).to(model.device) # [batch_size * beam_size]
 
     past_key_values = None
-    results = {
-        "scores": [None for _ in range(batch_size)],
-        "predictions": [None for _ in range(batch_size)]
-    }
+    maximum_num_per_beam = 0
     for step in range(max_length):
         decoder_input_ids = alive_seq[:, -1:] # [batch_size * beam_size, 1]
         decoder_outputs = model.decoder(
@@ -95,6 +96,7 @@ def generate(
         length_penalty = ((5.0 + (step + 1)) / 6.0) ** alpha
         cur_scores = log_probs / length_penalty # [batch_size * beam_size, vocab_size]
 
+        ignored_beams = set()
         # if trigram is repeated in a beam, ignore that beam (assign large minus score)
         if block_trigram:
             cur_length = alive_seq.size(1)
@@ -111,11 +113,29 @@ def generate(
                         fail = True
                     if fail:
                         cur_scores[idx] = -1e20
+                        ignored_beams.add(idx)
         # ignore beams that ended
         for idx in range(alive_seq.size(0)):
             prev_generated_token_id = alive_seq[idx][-1]
             if prev_generated_token_id == decoder_end_token_id:
                 cur_scores[idx] = -1e20 # ignore beam `idx`
+                ignored_beams.add(idx)
+        if step == 0:
+            non_top_beams_mask = torch.tensor([False] + [True] * (beam_size - 1)).unsqueeze(0).repeat(batch_size, 1).view(-1).to(model.device)
+            non_top_beams = torch.arange(beam_size * batch_size)[non_top_beams_mask].tolist()
+            ignored_beams = ignored_beams.union(set(non_top_beams))
+
+        # track ignored beams
+        ignored_beams = torch.tensor(sorted(list(ignored_beams)))
+        ignored_batch_of_beams = ignored_beams.div(beam_size, rounding_mode="trunc").tolist()
+        ignored_beams_in_batch = ignored_beams.fmod(beam_size).tolist()
+        ignored = {k: set() for k in ignored_batch_of_beams}
+        for batch, beam in zip(ignored_batch_of_beams, ignored_beams_in_batch):
+            ignored[batch].add(beam)
+        ignored = {k: sorted(list(v)) for k, v in ignored.items()}
+        for k in range(batch_offset.size(0)): # current batch size
+            if k not in ignored:
+                ignored[k] = []
 
         cur_scores = cur_scores.reshape(-1, beam_size * vocab_size) # [batch_size, beam_size * vocab_size]
         if do_sample and num_sampling > beam_size:
@@ -127,7 +147,38 @@ def generate(
             topk_scores = torch.gather(topk_scores, 1, idxs)
             topk_ids = torch.gather(topk_ids, 1, idxs)
         else:
-            topk_scores, topk_ids = cur_scores.topk(beam_size, dim=-1)
+            cur_scores_3d = cur_scores.view(-1, beam_size, vocab_size)
+            topk_scores = []
+            topk_ids = []
+            for batch_idx in range(cur_scores_3d.size(0)):
+                batch_cur_scores = cur_scores_3d[batch_idx] # [beam_size, vocab_size]
+                num_non_ignored_beams = beam_size - len(ignored[batch_idx])
+                if num_non_ignored_beams == 0:
+                    ignored[batch_idx] = []
+                    num_per_beam = max_candidates_per_beam
+                else:
+                    num_per_beam = (beam_size - 1) // num_non_ignored_beams + 1
+                num_per_beam = max(num_per_beam, max_candidates_per_beam)
+                if maximum_num_per_beam < num_per_beam and step > 0:
+                    maximum_num_per_beam = num_per_beam
+                batch_topk_scores = []
+                batch_topk_ids = []
+                for beam_idx, beam_scores in enumerate(batch_cur_scores): # beam_scrores: [vocab_size]
+                    if beam_idx in ignored[batch_idx]:
+                        continue
+                    else:
+                        beam_topk_scores, beam_topk_ids = beam_scores.topk(num_per_beam) # [num_per_beam]
+                        batch_topk_scores.append(beam_topk_scores)
+                        batch_topk_ids.append(beam_topk_ids + beam_idx * vocab_size)
+                batch_topk_scores = torch.cat(batch_topk_scores, dim=0) # [num_per_beam * num_non_ignored_beams]
+                batch_topk_ids = torch.cat(batch_topk_ids, dim=0) # [num_per_beam * num_non_ignored_beams]
+
+                _topk_scores, _topk_ids = batch_topk_scores.topk(beam_size, dim=0) # [beam_size]
+                _topk_ids = torch.gather(batch_topk_ids, 0, _topk_ids)
+                topk_scores.append(_topk_scores)
+                topk_ids.append(_topk_ids)
+            topk_scores = torch.stack(topk_scores, dim=0) # [batch_size, beam_size]
+            topk_ids = torch.stack(topk_ids, dim=0) # [batch_size, beam_size]
         
         # Recover log probs
         topk_log_probs = topk_scores * length_penalty
@@ -199,6 +250,7 @@ def generate(
     for idx in range(batch_size):
         hypotheses[idx].sort(key=lambda x: x[0], reverse=True)
         hypotheses[idx] = hypotheses[idx][:beam_size]
+    logger.info("Maximum duplicated prefix: {}".format(maximum_num_per_beam))
     return hypotheses
 
 
@@ -211,31 +263,58 @@ def main():
     global logger
     logger = logging.getLogger(__name__)
     logging.basicConfig(level=logging.INFO)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-path", default="VietAI/vit5-base-vietnews-summarization")
+    parser.add_argument("--data-path", default="../data/vlsp-2022/jsonl/vlsp_2022_abmusu_train_data_flattened.jsonl")
+    parser.add_argument("--output-path", default="../data/vlsp-2022/jsonl/candidates/vlsp_2022_abmusu_train_data_flattened_candidates.jsonl")
+    args = parser.parse_args()
+
     tokenizer = AutoTokenizer.from_pretrained("VietAI/vit5-base-vietnews-summarization")
-    model = T5ForConditionalGeneration.from_pretrained("VietAI/vit5-base-vietnews-summarization")
+    model = T5ForConditionalGeneration.from_pretrained(args.model_path)
     model.to("cuda")
     model.eval()
-    inputs = tokenizer('Sáng 26/10, Quốc hội thảo luận tại tổ về dự thảo Nghị quyết thí điểm cấp quyền lựa chọn sử dụng biển số ô tô thông qua đấu giá. Theo dự thảo được Bộ trưởng Công an thông tin trước đó tại Quốc hội, người được trúng đấu giá sẽ được giữ lại biển số trúng đấu giá khi chuyển nhượng, cho tặng, thừa kế xe ô tô để đăng ký cho xe khác thuộc sở hữu của mình. Trong thời hạn 12 tháng kể từ ngày được cấp văn bản xác nhận trúng đấu giá, người trúng đấu giá phải thực hiện thủ tục đăng ký xe tại cơ quan đăng ký xe để gắn biển số với xe. Nếu quá hạn mà không đăng ký biển số đó gắn với xe thì cơ quan có thẩm quyền sẽ thu hồi biển số trúng đấu giá. Đồng tình với nội dung dự thảo nghị quyết, Chủ tịch UBND TP Hà Nội Trần Sỹ Thanh cho rằng quy định đó sẽ tránh được chuyện "đầu cơ" biển số, mua bán biển số xe gây phức tạp. Về giá khởi điểm của biển số được đưa ra đấu giá (vùng 1 gồm Hà Nội, TPHCM là 40 triệu đồng và vùng 2 gồm các địa phương còn lại là 20 triệu đồng/biển số) mà dự thảo đưa ra, ông Trần Sỹ Thanh lo ngại "sẽ loạn" Ông đề nghị chỉ quy định mức sàn của giá khởi điểm, còn lại giao HĐND các tỉnh, thành quyết định mức giá khởi điểm, bước giá. "Nên giao HĐND quyết, đừng chê tỉnh nghèo. Nhà nước có thể nghèo chứ dân không nghèo, ví dụ Đắk Lắk, xe xịn còn nhiều hơn Đà Nẵng"- Chủ tịch UBND TP Hà Nội Trần Sỹ Thanh nói. Ông phân tích, ở TP Hà Nội bước giá phải 20, 40, 50 triệu đồng thì đấu giá mới nhanh, có khi chỉ 10 phút xong. Tiền thu được từ đấu giá biển số xe nên được đưa về ngân sách địa phương. Thậm chí, Chủ tịch Hà Nội Trần Sỹ Thanh còn cho rằng việc thí điểm đấu giá biển số không được phá vỡ nguyên tắc quản lý xe theo địa giới hành chính. Đơn cử như nếu đấu giá tập trung trên phạm vi cả nước thì có thể xảy ra chuyện toàn bộ người dân phía Bắc sẽ đấu giá biển số xe Hà Nội, gây khó khăn cho quản lý. Vợ chồng bỏ 5 tỷ đấu giá biển số, khi ly hôn giải quyết thế nào? Ở tổ TPHCM, đại biểu Quốc hội Trương Trọng Nghĩa cho rằng nội dung dự thảo nghị quyết đã tạo ra một thị trường, biển số xe từ chỗ không là tài sản công, phục vụ công tác quản lý, thì bây giờ có thể có giá lên tới vài tỉ đồng, thậm chí còn cao hơn. Do đó phải có quy định chặt chẽ để quản lý, bởi tài sản còn liên quan đến vấn đề chuyển nhượng, thừa kế, cho tặng. Đáng chú ý, ông Nghĩa nhận định, việc đấu giá quyền sử dụng biển số ô tô còn liên quan đến tài sản vợ chồng và rất nhiều vấn đề khác. "Vợ chồng bỏ ra 5 tỷ đồng để đấu giá lấy một biển số ôtô, thì khi ly hôn chia tài sản như thế nào"- ông Nghĩa đặt vấn đề. Ông Nghĩa đề nghị cơ quan thẩm tra, cơ quan soạn thảo thận trọng, nếu các nội dung trong dự thảo chưa ổn thì không vội vàng, phải yêu cầu xây dựng quy định chặt chẽ. Trong khi đó, Phó Chủ nhiệm Ủy ban Pháp luật Nguyễn Phương Thủy băn khoăn khi dự thảo quy định theo hướng người được trúng đấu giá được giữ lại biển số trúng đấu giá khi chuyển nhượng, cho tặng, thừa kế xe để đăng ký cho xe khác thuộc sở hữu của mình. "Tôi thấy thực sự rất băn khoăn vì mục tiêu của biển số xe là để quản lý phương tiện mà bây giờ lại tách rời với phương tiện để như một tài sản có thể chuyển nhượng được, có thể chuyển từ xe nọ sang xe kia. Việc này sẽ rất phức tạp trong quản lý, nhất là khi chúng ta đang thực hiện thí điểm vấn đề này"- bà Thủy phân tích. Từ đó vị đại biểu đề nghị, biển số xe trúng đấu giá vẫn gắn với phương tiện, ngay khi mua bán, chuyển nhượng, thừa kế phương tiện đó. Khi nào hết vòng đời phương tiện thì biển số xe được thu hồi để đưa vào kho số đấu giá tiếp. "Biển số xe gắn với người có thể dẫn đến một số trường hợp chúng ta chưa lý giải được và dẫn đến một khả năng đầu cơ rất lớn. Người ta có thể đấu giá rất nhiều biển số để gắn cho xe giá rẻ, khi ai đó có nhu cầu mua biển cho xe sang, xe xịn thì sẽ bán lại"- Phó Chủ nhiệm Ủy ban Pháp luật nêu ý kiến.',
-                        return_tensors='pt')
+
+    data = []
+    with open(args.data_path, "r") as reader:
+        for line in reader:
+            data.append(json.loads(line.strip()))
+    inputs = tokenizer(data[0]['document'], return_tensors='pt')
+    # inputs = tokenizer('Sáng 26/10, Quốc hội thảo luận tại tổ về dự thảo Nghị quyết thí điểm cấp quyền lựa chọn sử dụng biển số ô tô thông qua đấu giá. Theo dự thảo được Bộ trưởng Công an thông tin trước đó tại Quốc hội, người được trúng đấu giá sẽ được giữ lại biển số trúng đấu giá khi chuyển nhượng, cho tặng, thừa kế xe ô tô để đăng ký cho xe khác thuộc sở hữu của mình. Trong thời hạn 12 tháng kể từ ngày được cấp văn bản xác nhận trúng đấu giá, người trúng đấu giá phải thực hiện thủ tục đăng ký xe tại cơ quan đăng ký xe để gắn biển số với xe. Nếu quá hạn mà không đăng ký biển số đó gắn với xe thì cơ quan có thẩm quyền sẽ thu hồi biển số trúng đấu giá. Đồng tình với nội dung dự thảo nghị quyết, Chủ tịch UBND TP Hà Nội Trần Sỹ Thanh cho rằng quy định đó sẽ tránh được chuyện "đầu cơ" biển số, mua bán biển số xe gây phức tạp. Về giá khởi điểm của biển số được đưa ra đấu giá (vùng 1 gồm Hà Nội, TPHCM là 40 triệu đồng và vùng 2 gồm các địa phương còn lại là 20 triệu đồng/biển số) mà dự thảo đưa ra, ông Trần Sỹ Thanh lo ngại "sẽ loạn" Ông đề nghị chỉ quy định mức sàn của giá khởi điểm, còn lại giao HĐND các tỉnh, thành quyết định mức giá khởi điểm, bước giá. "Nên giao HĐND quyết, đừng chê tỉnh nghèo. Nhà nước có thể nghèo chứ dân không nghèo, ví dụ Đắk Lắk, xe xịn còn nhiều hơn Đà Nẵng"- Chủ tịch UBND TP Hà Nội Trần Sỹ Thanh nói. Ông phân tích, ở TP Hà Nội bước giá phải 20, 40, 50 triệu đồng thì đấu giá mới nhanh, có khi chỉ 10 phút xong. Tiền thu được từ đấu giá biển số xe nên được đưa về ngân sách địa phương. Thậm chí, Chủ tịch Hà Nội Trần Sỹ Thanh còn cho rằng việc thí điểm đấu giá biển số không được phá vỡ nguyên tắc quản lý xe theo địa giới hành chính. Đơn cử như nếu đấu giá tập trung trên phạm vi cả nước thì có thể xảy ra chuyện toàn bộ người dân phía Bắc sẽ đấu giá biển số xe Hà Nội, gây khó khăn cho quản lý. Vợ chồng bỏ 5 tỷ đấu giá biển số, khi ly hôn giải quyết thế nào? Ở tổ TPHCM, đại biểu Quốc hội Trương Trọng Nghĩa cho rằng nội dung dự thảo nghị quyết đã tạo ra một thị trường, biển số xe từ chỗ không là tài sản công, phục vụ công tác quản lý, thì bây giờ có thể có giá lên tới vài tỉ đồng, thậm chí còn cao hơn. Do đó phải có quy định chặt chẽ để quản lý, bởi tài sản còn liên quan đến vấn đề chuyển nhượng, thừa kế, cho tặng. Đáng chú ý, ông Nghĩa nhận định, việc đấu giá quyền sử dụng biển số ô tô còn liên quan đến tài sản vợ chồng và rất nhiều vấn đề khác. "Vợ chồng bỏ ra 5 tỷ đồng để đấu giá lấy một biển số ôtô, thì khi ly hôn chia tài sản như thế nào"- ông Nghĩa đặt vấn đề. Ông Nghĩa đề nghị cơ quan thẩm tra, cơ quan soạn thảo thận trọng, nếu các nội dung trong dự thảo chưa ổn thì không vội vàng, phải yêu cầu xây dựng quy định chặt chẽ. Trong khi đó, Phó Chủ nhiệm Ủy ban Pháp luật Nguyễn Phương Thủy băn khoăn khi dự thảo quy định theo hướng người được trúng đấu giá được giữ lại biển số trúng đấu giá khi chuyển nhượng, cho tặng, thừa kế xe để đăng ký cho xe khác thuộc sở hữu của mình. "Tôi thấy thực sự rất băn khoăn vì mục tiêu của biển số xe là để quản lý phương tiện mà bây giờ lại tách rời với phương tiện để như một tài sản có thể chuyển nhượng được, có thể chuyển từ xe nọ sang xe kia. Việc này sẽ rất phức tạp trong quản lý, nhất là khi chúng ta đang thực hiện thí điểm vấn đề này"- bà Thủy phân tích. Từ đó vị đại biểu đề nghị, biển số xe trúng đấu giá vẫn gắn với phương tiện, ngay khi mua bán, chuyển nhượng, thừa kế phương tiện đó. Khi nào hết vòng đời phương tiện thì biển số xe được thu hồi để đưa vào kho số đấu giá tiếp. "Biển số xe gắn với người có thể dẫn đến một số trường hợp chúng ta chưa lý giải được và dẫn đến một khả năng đầu cơ rất lớn. Người ta có thể đấu giá rất nhiều biển số để gắn cho xe giá rẻ, khi ai đó có nhu cầu mua biển cho xe sang, xe xịn thì sẽ bán lại"- Phó Chủ nhiệm Ủy ban Pháp luật nêu ý kiến.',
+    #                     return_tensors='pt')
+
+    with torch.no_grad():
+        candidates = generate(
+            model,
+            tokenizer,
+            input_ids=inputs.input_ids.to("cuda"),
+            beam_size=16,
+            min_length=100,
+            max_length=256,
+            alpha=1.0,
+            block_trigram=True,
+            num_return_sequences=16,
+            do_sample=False,
+            max_candidates_per_beam=2
+        )
+    candidates = candidates[0]
+    texts = []
+    for cand in candidates:
+        with tokenizer.as_target_tokenizer():
+            texts.append(tokenizer.decode(cand[1], clean_up_tokenization_spaces=False, skip_special_tokens=True))
+    pass
 
     # with torch.no_grad():
-        # candidates = generate(
-        #     model,
-        #     tokenizer,
-        #     input_ids=inputs.input_ids.to("cuda"),
-        #     beam_size=16,
-        #     min_length=100,
-        #     max_length=256,
-        #     alpha=1.0,
-        #     block_trigram=True,
-        #     num_return_sequences=16,
-        #     do_sample=False
-        # )
-    # candidates = candidates[0]
-    # texts = []
-    # for cand in candidates:
-    #     with tokenizer.as_target_tokenizer():
-    #         texts.append(tokenizer.decode(cand[1], clean_up_tokenization_spaces=False, skip_special_tokens=True))
+    #     candidates = model.generate(
+    #         input_ids=inputs.input_ids.to("cuda"),
+    #         num_beams=32,
+    #         num_beam_groups=8,
+    #         diversity_penalty=1.0,
+    #         length_penalty=1.0,
+    #         num_return_sequences=16,
+    #         max_length=512
+    #     )
+    # pass
 
 
 if __name__ == "__main__":
