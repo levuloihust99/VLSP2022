@@ -130,20 +130,19 @@ def generate_summaries_abmusu(args):
             gen = model.generate(
                 input_ids=input_ids.to(device),
                 max_length=256,
-                # num_beams=6,
-                # do_sample=True,
-                # no_repeat_ngram_size=3,
-                # length_penalty=2.0,
-                # early_stopping=True,
                 num_beams=16,
                 do_sample=True,
                 no_repeat_ngram_size=3,
                 length_penalty=2.0,
-                early_stopping=True,
+                # num_return_sequences=16
+                # early_stopping=True,
             )
         with tokenizer.as_target_tokenizer():
             outputs = [tokenizer.decode(g, clean_up_tokenization_spaces=False, skip_special_tokens=True) for g in gen]
-        item['candidates'].append(outputs[0])
+        if 'candidates' in item:
+            item['candidates'].extend(outputs)
+        else:
+            item['candidates'] = outputs
         writer.write(json.dumps(item, ensure_ascii=False) + "\n")
     writer.close()
 
