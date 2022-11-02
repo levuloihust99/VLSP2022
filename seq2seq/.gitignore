@@ -5,3 +5,6 @@ conf/
 outputs/
 pretrained/
 /*.txt
+tmp/
+submission/
+**__pycache__/

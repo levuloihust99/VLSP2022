@@ -154,6 +154,7 @@ def generate(
                 batch_cur_scores = cur_scores_3d[batch_idx] # [beam_size, vocab_size]
                 num_non_ignored_beams = beam_size - len(ignored[batch_idx])
                 if num_non_ignored_beams == 0:
+                    logger.info("Encounter a batch with all beams are ignored.")
                     ignored[batch_idx] = []
                     num_per_beam = max_candidates_per_beam
                 else:

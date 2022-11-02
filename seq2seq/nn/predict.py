@@ -23,10 +23,12 @@ def predict_single(model, data, tokenizer, args):
             for input_ids in tqdm(tokenized_data):
                 candidates = model.generate(
                     input_ids=input_ids.to(model.device),
-                    max_length=256,
-                    num_beams=16,
+                    min_length=args.min_length,
+                    max_length=args.max_length,
+                    num_beams=args.num_beams,
                     length_penalty=1.0,
-                    do_sample=True
+                    do_sample=True,
+                    no_repeat_ngram_size=3
                 )
                 with tokenizer.as_target_tokenizer():
                     outputs = [
@@ -63,7 +65,8 @@ def predict_all(model, data, tokenizer, args):
                     max_length=256,
                     num_beams=16,
                     length_penalty=1.0,
-                    do_sample=False
+                    do_sample=False,
+                    no_repeat_ngram_size=3
                 )
                 with tokenizer.as_target_tokenizer():
                     outputs = [
@@ -79,6 +82,44 @@ def predict_all(model, data, tokenizer, args):
     writer.close()
 
 
+def predict_concat(model, data, tokenizer, args):
+    logger.info("Tokenizing data...")
+    t0 = time.perf_counter()
+    tokenized_data = []
+    for item in tqdm(data):
+        raw_text = tokenizer.eos_token.join([doc['raw_text'] for doc in item['single_documents']])
+        inputs = tokenizer(raw_text, return_tensors='pt')
+        tokenized_data.append(inputs.input_ids)
+    
+    output_data = []
+    writer = open(args.output_path, "w")
+    with torch.no_grad():
+        for idx, input_ids in tqdm(enumerate(tokenized_data), total=len(tokenized_data)):
+            candidates = model.generate(
+                input_ids=input_ids.to(model.device),
+                max_length=args.max_length,
+                min_length=args.min_length,
+                num_beams=args.num_beams,
+                length_penalty=1.0,
+                do_sample=True,
+                no_repeat_ngram_size=3
+            )
+            with tokenizer.as_target_tokenizer():
+                outputs = [
+                    tokenizer.decode(cand, clean_up_tokenization_spaces=False, skip_special_tokens=True)
+                    for cand in candidates
+                ]
+            output = outputs[0]
+            raw_texts = [doc['raw_text'] for doc in data[idx]['single_documents']]
+            if not args.write_textline:
+                output_item = {'src': raw_texts, 'predict': output}
+                writer.write(json.dumps(output_item) + "\n")
+            else:
+                writer.write(output + "\n")
+    
+    writer.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--test-file", required=True,
@@ -88,7 +129,11 @@ def main():
     parser.add_argument("--tokenizer-path", default="VietAI/vit5-base-vietnews-summarization")
     parser.add_argument("--gpuid", default=0, type=int)
     parser.add_argument("--output-path", default="logs/candidate.out")
-    parser.add_argument("--mode", default="single", choices=['single', 'all'])
+    parser.add_argument("--mode", default="single", choices=['single', 'all', 'concat'])
+    parser.add_argument("--min-length", default=200, type=int)
+    parser.add_argument("--max-length", default=512, type=int)
+    parser.add_argument("--num-beams", default=5, type=int)
+    parser.add_argument("--write-textline", default=False, type=eval)
     args = parser.parse_args()
 
     # load data
@@ -108,8 +153,10 @@ def main():
 
     if args.mode == 'single':
         predict_single(model, data, tokenizer, args)
-    else:
+    elif args.mode == 'all':
         predict_all(model=model, data=data, tokenizer=tokenizer, args=args)
+    else:
+        predict_concat(model, data, tokenizer, args)
 
 
 if __name__ == "__main__":
