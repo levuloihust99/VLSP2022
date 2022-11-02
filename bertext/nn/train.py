@@ -112,7 +112,7 @@ def main(cfg: DictConfig):
     except FileNotFoundError:
         files = []
     files = [os.path.join(cfg.output_dir, f) for f in files]
-    files = sorted(files, key=lambda x: os.path.getmtime(), reverse=True)
+    files = sorted(files, key=lambda x: os.path.getmtime(x), reverse=True)
     if files:
         cp_dir = files[0]
         saved_state = torch.load(os.path.join(cp_dir, 'checkpoint.pt'), map_location=lambda s, t: s)

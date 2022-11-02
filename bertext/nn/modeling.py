@@ -17,16 +17,19 @@ class BertExtractive(torch.nn.Module):
 
 def create_model(cfg):
     config = BertConfig.from_pretrained(cfg.pretrained_encoder_model_path)
-    if cfg.dropout:
+    if cfg.dropout is not None:
         config.attention_probs_dropout_prob = cfg.dropout
         config.hidden_dropout_prob = cfg.dropout
-    encoder = BertModel.from_pretrained(cfg.pretrained_encoder_model_path)
+    encoder = BertModel.from_pretrained(cfg.pretrained_encoder_model_path, config=config)
     inter_encoder_config = BertConfig(
         hidden_size=config.hidden_size,
         intermediate_size=config.intermediate_size,
         num_attention_heads=config.num_attention_heads,
         num_hidden_layers=cfg.inter_encoder.num_hidden_layers
     )
+    if cfg.dropout is not None:
+        inter_encoder_config.attention_probs_dropout_prob = cfg.dropout
+        inter_encoder_config.hidden_dropout_prob = cfg.dropout
     inter_encoder = BertEncoder(inter_encoder_config)
     for module in inter_encoder.modules():
         if isinstance(module, (nn.Linear, nn.Embedding)):
