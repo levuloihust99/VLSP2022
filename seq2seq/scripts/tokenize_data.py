@@ -1,5 +1,6 @@
 import csv
 import json
+import argparse
 from datasets import Dataset
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, Seq2SeqTrainer, TrainingArguments, Seq2SeqTrainingArguments
 from tqdm import tqdm
@@ -20,23 +21,49 @@ def preprocess_fn(tokenizer, features):
     return {'document/input_ids': documents.input_ids, 'summary/input_ids': summaries.input_ids}
 
 
-def main():
-    model_name = "VietAI/vit5-base-vietnews-summarization" # or "VietAI/vit5-large-vietnews-summarization"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)  
+def preprocess_multi_doc(tokenizer, features, model_type='base'):
+    documents = []
+    summaries = []
 
-    data_path = "/home/lvloi/projects/vlsp-2022/data/vlsp-2022/jsonl/vlsp_2022_abmusu_train_data_new.jsonl"
+    for docs, summary in zip(features['single_documents'], features['summary']):
+        raw_texts = [doc['raw_text'] for doc in docs]
+        concat_text = " ".join(raw_texts)
+        if model_type == 'large':
+            concat_text = "vietnews: " + concat_text
+        documents.append(concat_text)
+        summaries.append(summary)
+    
+    documents = tokenizer(documents, max_length=4096, truncation=True)
+    summaries = tokenizer(summaries, max_length=4096, truncation=True)
+
+    return {'document/input_ids': documents.input_ids, 'summary/input_ids': summaries.input_ids}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-path", default="VietAI/vit5-base-vietnews-summarization")
+    parser.add_argument("--tokenizer-path", default="VietAI/vit5-base-vietnews-summarization")
+    parser.add_argument("--model-type", choices=['base', 'large'], default='base')
+    parser.add_argument("--data-path", required=True)
+    parser.add_argument("--output-path", required=True)
+    args = parser.parse_args()
+
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)  
+
     data = []
-    with open(data_path, "r") as reader:
+    with open(args.data_path, "r") as reader:
         for line in reader:
             data.append(json.loads(line.strip()))
 
     dataset = Dataset.from_list(data)
-    dataset = dataset.map(lambda features: preprocess_fn(tokenizer, features), batched=True,
-        num_proc=10, batch_size=10, remove_columns=['single_documents', 'summary', 'category'])
+    dataset = dataset.map(lambda features: preprocess_multi_doc(tokenizer, features, args.model_type), batched=True,
+        num_proc=10, batch_size=10, remove_columns=['single_documents', 'summary'])
     
-    writer = open("/home/lvloi/projects/vlsp-2022/data/vlsp-2022/pretokenized/vlsp_2022_absumu_train_data_pretokenized.jsonl", "w")
+    writer = open(args.output_path, "w")
     for idx in range(len(dataset)):
-        writer.write(json.dumps(dataset[idx]) + "\n")
+        item = {'document/input_ids': dataset[idx]['document/input_ids'], 'summary/input_ids': dataset[idx]['summary/input_ids']}
+        writer.write(json.dumps(item) + "\n")
+    writer.close()
 
 
 if __name__ == "__main__":
