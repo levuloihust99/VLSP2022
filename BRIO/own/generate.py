@@ -1,14 +1,249 @@
 import json
 import argparse
 import torch
-from torch import maximum, nn
-from typing import Optional, Tuple
 import logging
+
+from tqdm import tqdm
+from typing import Optional, Tuple
 
 from .utils import tile, recursive_apply
 
 
+def greedy_multiple(
+    model,
+    tokenizer,
+    input_ids: Optional[torch.Tensor] = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    inputs_embeds: Optional[torch.Tensor] = None,
+    encoder_hidden_states: Optional[torch.Tensor] = None,
+    beam_size: int = 1,
+    min_length: int = 0,
+    max_length: int = 100,
+    alpha: float = 0.6,
+    block_trigram: bool = True,
+    num_return_sequences: int = 1,
+    do_sample: bool = False,
+    num_sampling: int = 32,
+    max_candidates_per_beam: int = 0
+):
+    # 1. initialization
+    decoder_end_token_id = tokenizer.eos_token_id
+    topk_log_probs = torch.tensor([0.0] + [float("-inf")] * (num_return_sequences - 1)).to(model.device) # [expanded_beam_size]
+    alive_seq = torch.full(
+        [num_return_sequences, 1],
+        model.config.decoder_start_token_id,
+        dtype=torch.long,
+        device=model.device
+    )
+
+    if encoder_hidden_states is None:
+        encoder_outputs = model.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            inputs_embeds=inputs_embeds,
+            return_dict=True
+        )
+        encoder_hidden_states = encoder_outputs.last_hidden_state # [1, seq_len, hidden_size]
+    encoder_hidden_states_tiled = tile(encoder_hidden_states, num_return_sequences, dim=0) # [B, seq_len, hidden_size]
+    past_key_values = None
+
+    # decode first step
+    decoder_input_ids = alive_seq[:, -1:] # [B, 1]
+    decoder_outputs = model.decoder(
+        input_ids=decoder_input_ids,
+        encoder_hidden_states=encoder_hidden_states_tiled,
+        use_cache=True,
+        past_key_values=past_key_values
+    )
+    past_key_values = decoder_outputs.past_key_values
+    sequence_output = decoder_outputs[0] # [B, 1, vocab_size]
+    if model.config.tie_word_embeddings:
+        # Rescale output before projecting on vocab
+        # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
+        sequence_output = sequence_output * (model.model_dim**-0.5)
+    logits = model.lm_head(sequence_output)
+    vocab_size = logits.size(-1)
+    log_probs = torch.nn.functional.log_softmax(logits, dim=-1).squeeze(1) # [B, vocab_size]
+    log_probs[:, decoder_end_token_id] = -1e20
+
+    # sum of log probs of the current sequence
+    log_probs += topk_log_probs.unsqueeze(1) # [B, vocab_size]
+
+    cur_scores = log_probs / 1.0 # [B, vocab_size]
+    cur_scores = cur_scores.view(-1) # [B * vocab_size]
+    topk_scores, topk_ids = cur_scores.topk(num_return_sequences, dim=0)
+    
+    alive_seq = torch.cat([alive_seq, torch.unsqueeze(topk_ids, dim=1)], dim=1)
+
+    hypotheses = []
+    # 3. multi greedy
+    for idx in tqdm(range(num_return_sequences), total=num_return_sequences, desc="Candidate"):
+        seq = alive_seq[idx: idx + 1] # [1, 2]
+        past_k_v = recursive_apply(past_key_values, lambda x: x.index_select(0, torch.tensor([0]).to(model.device)))
+        for step in tqdm(range(max_length), total=max_length, desc="Step"):
+            decoder_input_ids = seq[:, -1:] # [1, 1]
+            decoder_outputs = model.decoder(
+                input_ids=decoder_input_ids,
+                encoder_hidden_states=encoder_hidden_states,
+                use_cache=True,
+                past_key_values=past_k_v
+            )
+            past_k_v = decoder_outputs.past_key_values
+            sequence_output = decoder_outputs[0]
+            if model.config.tie_word_embeddings:
+                # Rescale output before projecting on vocab
+                # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
+                sequence_output = sequence_output * (model.model_dim**-0.5)
+            logits = model.lm_head(sequence_output) # [1, 1, vocab_size]
+            next_id = torch.argmax(logits, dim=-1) # [1, 1]
+            seq = torch.cat([seq, next_id], dim=1)
+            if int(next_id[0][0]) == decoder_end_token_id:
+                break
+        with tokenizer.as_target_tokenizer():
+            hypotheses.append(tokenizer.decode(seq[0], clean_up_tokenization_spaces=False, skip_special_tokens=True))
+    return hypotheses
+
+
 def generate(
+    model,
+    tokenizer,
+    input_ids: Optional[torch.Tensor] = None,
+    attention_mask: Optional[torch.Tensor] = None,
+    inputs_embeds: Optional[torch.Tensor] = None,
+    encoder_hidden_states: Optional[torch.Tensor] = None,
+    beam_size: int = 1,
+    min_length: int = 0,
+    max_length: int = 100,
+    alpha: float = 0.6,
+    block_trigram: bool = True,
+    num_return_sequences: int = 1,
+    do_sample: bool = False,
+    num_sampling: int = 32,
+    max_candidates_per_beam: int = 0
+):
+    expanded_beam_size = beam_size * 3
+    decoder_end_token_id = tokenizer.eos_token_id
+    if input_ids is None:
+        assert inputs_embeds is not None, \
+            "At least 'input_ids' or 'inputs_embeds' must be provided."
+
+    if encoder_hidden_states is None:
+        encoder_outputs = model.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            inputs_embeds=inputs_embeds,
+            return_dict=True
+        )
+        encoder_hidden_states = encoder_outputs.last_hidden_state # [1, seq_len, hidden_size]
+    encoder_hidden_states = tile(encoder_hidden_states, expanded_beam_size, dim=0) # [expanded_beam_size, seq_len, hidden_size]
+    
+    hypotheses = []
+    alive_seq = torch.full(
+        [expanded_beam_size, 1],
+        model.config.decoder_start_token_id,
+        dtype=torch.long,
+        device=model.device
+    )
+    topk_log_probs = torch.tensor([0.0] + [float("-inf")] * (expanded_beam_size - 1)).to(model.device) # [expanded_beam_size]
+    topk_scores = torch.empty_like(topk_log_probs).copy_(topk_log_probs).to(model.device)
+    past_key_values = None
+
+    for step in range(max_length):
+        # 1. if encounter repeated trigram, ignore
+        repeated_trigram_beams = []
+        if block_trigram:
+            cur_length = alive_seq.size(1)
+            if cur_length > 3:
+                for idx in range(alive_seq.size(0)):
+                    fail = False
+                    words = [int(w) for w in alive_seq[idx]]
+                    words = tokenizer.decode(words).split()
+                    if len(words) <=3:
+                        continue
+                    trigrams = [(words[i - 1], words[i], words[i + 1]) for i in range(1, len(words) - 1)]
+                    trigram = tuple(trigrams[-1])
+                    if trigram in trigrams[:-1]:
+                        fail = True
+                    if fail:
+                        cur_scores[idx] = -1e20
+                        repeated_trigram_beams.append(idx)
+        kept_beams = [idx for idx in range(alive_seq.size(0)) if idx not in repeated_trigram_beams]
+        kept_beams = torch.tensor(kept_beams).to(model.device)
+        alive_seq = alive_seq.index_select(0, kept_beams)
+        if past_key_values:
+            past_key_values = recursive_apply(past_key_values, lambda x: x.index_select(0, kept_beams))
+        encoder_hidden_states = encoder_hidden_states.index_select(0, kept_beams)
+        topk_log_probs = topk_log_probs.index_select(0, kept_beams)
+        
+        # 2. if beam ends, add to hypotheses and filter beams
+        ended_beams = []
+        for idx in range(alive_seq.size(0)):
+            prev_generated_token_id = alive_seq[idx][-1]
+            if prev_generated_token_id == decoder_end_token_id:
+                ended_beams.append(idx)
+                hypotheses.append({'sequence': alive_seq[idx], 'score': topk_scores[idx]})
+        non_ended_beams = [idx for idx in range(alive_seq.size(0)) if idx not in ended_beams]
+        non_ended_beams = torch.tensor(non_ended_beams).to(model.device)
+        alive_seq = alive_seq.index_select(0, non_ended_beams)
+        if past_key_values:
+            past_key_values = recursive_apply(past_key_values, lambda x: x.index_select(0, non_ended_beams))
+        encoder_hidden_states = encoder_hidden_states.index_select(0, non_ended_beams)
+        topk_log_probs = topk_log_probs.index_select(0, non_ended_beams)
+
+        if alive_seq.size(0) == 0:
+            break
+
+        # 3. generate
+        decoder_input_ids = alive_seq[:, -1:] # [B, 1]
+        decoder_outputs = model.decoder(
+            input_ids=decoder_input_ids,
+            encoder_hidden_states=encoder_hidden_states,
+            use_cache=True,
+            past_key_values=past_key_values
+        )
+        past_key_values = decoder_outputs.past_key_values
+        sequence_output = decoder_outputs[0] # [B, 1, vocab_size]
+        if model.config.tie_word_embeddings:
+            # Rescale output before projecting on vocab
+            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
+            sequence_output = sequence_output * (model.model_dim**-0.5)
+        logits = model.lm_head(sequence_output)
+        vocab_size = logits.size(-1)
+        log_probs = torch.nn.functional.log_softmax(logits, dim=-1).squeeze(1) # [B, vocab_size]
+        if step < min_length:
+            log_probs[:, decoder_end_token_id] = -1e20
+        
+        # sum of log probs of the current sequence
+        log_probs += topk_log_probs.unsqueeze(1) # [B, vocab_size]
+
+        length_penalty = ((5.0 + (step + 1)) / 6.0) ** alpha
+        cur_scores = log_probs / length_penalty # [B, vocab_size]
+        cur_scores = cur_scores.view(-1) # [B * vocab_size]
+
+        # size of topk_scores is always equal to size 0 of alive_seq
+        if step == 0:
+            topk_scores, topk_ids = cur_scores.topk(expanded_beam_size, dim=0) # [B]
+        else:
+            topk_scores = []
+            topk_ids = []
+            for idx in range(alive_seq.size(0)):
+                beam_vocab_score = cur_scores[idx]
+                beam_topk_scores, beam_topk_ids = beam_vocab_score.topk(1, dim=0) # [1]
+                topk_scores.append(beam_topk_scores)
+                topk_ids.append(beam_topk_ids)
+            topk_scores = torch.cat(topk_scores, dim=0).to(model.device)
+            topk_ids = torch.cat(topk_ids, dim=0).to(model.device)
+
+        alive_seq = torch.cat([alive_seq, torch.unsqueeze(topk_ids, dim=1)], dim=1)
+        topk_log_probs = topk_scores * length_penalty
+    
+    if alive_seq.size(0) > 0:
+        hypotheses.extend([{'sequence': alive_seq[idx], 'score': topk_scores[idx]} for idx in range(alive_seq.size(0))])
+    hypotheses.sort(key=lambda x: x['score'], reverse=True)
+    return hypotheses[:num_return_sequences]
+    
+
+def batch_generate(
     model,
     tokenizer,
     input_ids: Optional[torch.Tensor] = None,
@@ -250,7 +485,7 @@ def generate(
         ))
     for idx in range(batch_size):
         hypotheses[idx].sort(key=lambda x: x[0], reverse=True)
-        hypotheses[idx] = hypotheses[idx][:beam_size]
+        hypotheses[idx] = hypotheses[idx][:num_return_sequences]
     logger.info("Maximum duplicated prefix: {}".format(maximum_num_per_beam))
     return hypotheses
 
@@ -267,8 +502,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", default="VietAI/vit5-base-vietnews-summarization")
-    parser.add_argument("--data-path", default="../data/vlsp-2022/jsonl/vlsp_2022_abmusu_train_data_flattened.jsonl")
-    parser.add_argument("--output-path", default="../data/vlsp-2022/jsonl/candidates/vlsp_2022_abmusu_train_data_flattened_candidates.jsonl")
+    parser.add_argument("--data-path", required=True)
+    parser.add_argument("--output-path", required=True)
     args = parser.parse_args()
 
     tokenizer = AutoTokenizer.from_pretrained("VietAI/vit5-base-vietnews-summarization")
@@ -280,42 +515,35 @@ def main():
     with open(args.data_path, "r") as reader:
         for line in reader:
             data.append(json.loads(line.strip()))
-    inputs = tokenizer(data[0]['document'], return_tensors='pt')
-    # inputs = tokenizer('Sáng 26/10, Quốc hội thảo luận tại tổ về dự thảo Nghị quyết thí điểm cấp quyền lựa chọn sử dụng biển số ô tô thông qua đấu giá. Theo dự thảo được Bộ trưởng Công an thông tin trước đó tại Quốc hội, người được trúng đấu giá sẽ được giữ lại biển số trúng đấu giá khi chuyển nhượng, cho tặng, thừa kế xe ô tô để đăng ký cho xe khác thuộc sở hữu của mình. Trong thời hạn 12 tháng kể từ ngày được cấp văn bản xác nhận trúng đấu giá, người trúng đấu giá phải thực hiện thủ tục đăng ký xe tại cơ quan đăng ký xe để gắn biển số với xe. Nếu quá hạn mà không đăng ký biển số đó gắn với xe thì cơ quan có thẩm quyền sẽ thu hồi biển số trúng đấu giá. Đồng tình với nội dung dự thảo nghị quyết, Chủ tịch UBND TP Hà Nội Trần Sỹ Thanh cho rằng quy định đó sẽ tránh được chuyện "đầu cơ" biển số, mua bán biển số xe gây phức tạp. Về giá khởi điểm của biển số được đưa ra đấu giá (vùng 1 gồm Hà Nội, TPHCM là 40 triệu đồng và vùng 2 gồm các địa phương còn lại là 20 triệu đồng/biển số) mà dự thảo đưa ra, ông Trần Sỹ Thanh lo ngại "sẽ loạn" Ông đề nghị chỉ quy định mức sàn của giá khởi điểm, còn lại giao HĐND các tỉnh, thành quyết định mức giá khởi điểm, bước giá. "Nên giao HĐND quyết, đừng chê tỉnh nghèo. Nhà nước có thể nghèo chứ dân không nghèo, ví dụ Đắk Lắk, xe xịn còn nhiều hơn Đà Nẵng"- Chủ tịch UBND TP Hà Nội Trần Sỹ Thanh nói. Ông phân tích, ở TP Hà Nội bước giá phải 20, 40, 50 triệu đồng thì đấu giá mới nhanh, có khi chỉ 10 phút xong. Tiền thu được từ đấu giá biển số xe nên được đưa về ngân sách địa phương. Thậm chí, Chủ tịch Hà Nội Trần Sỹ Thanh còn cho rằng việc thí điểm đấu giá biển số không được phá vỡ nguyên tắc quản lý xe theo địa giới hành chính. Đơn cử như nếu đấu giá tập trung trên phạm vi cả nước thì có thể xảy ra chuyện toàn bộ người dân phía Bắc sẽ đấu giá biển số xe Hà Nội, gây khó khăn cho quản lý. Vợ chồng bỏ 5 tỷ đấu giá biển số, khi ly hôn giải quyết thế nào? Ở tổ TPHCM, đại biểu Quốc hội Trương Trọng Nghĩa cho rằng nội dung dự thảo nghị quyết đã tạo ra một thị trường, biển số xe từ chỗ không là tài sản công, phục vụ công tác quản lý, thì bây giờ có thể có giá lên tới vài tỉ đồng, thậm chí còn cao hơn. Do đó phải có quy định chặt chẽ để quản lý, bởi tài sản còn liên quan đến vấn đề chuyển nhượng, thừa kế, cho tặng. Đáng chú ý, ông Nghĩa nhận định, việc đấu giá quyền sử dụng biển số ô tô còn liên quan đến tài sản vợ chồng và rất nhiều vấn đề khác. "Vợ chồng bỏ ra 5 tỷ đồng để đấu giá lấy một biển số ôtô, thì khi ly hôn chia tài sản như thế nào"- ông Nghĩa đặt vấn đề. Ông Nghĩa đề nghị cơ quan thẩm tra, cơ quan soạn thảo thận trọng, nếu các nội dung trong dự thảo chưa ổn thì không vội vàng, phải yêu cầu xây dựng quy định chặt chẽ. Trong khi đó, Phó Chủ nhiệm Ủy ban Pháp luật Nguyễn Phương Thủy băn khoăn khi dự thảo quy định theo hướng người được trúng đấu giá được giữ lại biển số trúng đấu giá khi chuyển nhượng, cho tặng, thừa kế xe để đăng ký cho xe khác thuộc sở hữu của mình. "Tôi thấy thực sự rất băn khoăn vì mục tiêu của biển số xe là để quản lý phương tiện mà bây giờ lại tách rời với phương tiện để như một tài sản có thể chuyển nhượng được, có thể chuyển từ xe nọ sang xe kia. Việc này sẽ rất phức tạp trong quản lý, nhất là khi chúng ta đang thực hiện thí điểm vấn đề này"- bà Thủy phân tích. Từ đó vị đại biểu đề nghị, biển số xe trúng đấu giá vẫn gắn với phương tiện, ngay khi mua bán, chuyển nhượng, thừa kế phương tiện đó. Khi nào hết vòng đời phương tiện thì biển số xe được thu hồi để đưa vào kho số đấu giá tiếp. "Biển số xe gắn với người có thể dẫn đến một số trường hợp chúng ta chưa lý giải được và dẫn đến một khả năng đầu cơ rất lớn. Người ta có thể đấu giá rất nhiều biển số để gắn cho xe giá rẻ, khi ai đó có nhu cầu mua biển cho xe sang, xe xịn thì sẽ bán lại"- Phó Chủ nhiệm Ủy ban Pháp luật nêu ý kiến.',
-    #                     return_tensors='pt')
+    
+    tokenized_data = []
+    for item in tqdm(data):
+        raw_texts = [doc['raw_text'] for doc in item['single_documents']]
+        input_text = " ".join(raw_texts)
+        input_ids = tokenizer(input_text, max_length=4096, truncation=True, return_tensors='pt').input_ids
+        tokenized_data.append(input_ids)
 
-    with torch.no_grad():
-        candidates = generate(
-            model,
-            tokenizer,
-            input_ids=inputs.input_ids.to("cuda"),
-            beam_size=16,
-            min_length=100,
-            max_length=256,
-            alpha=1.0,
-            block_trigram=True,
-            num_return_sequences=16,
-            do_sample=False,
-            max_candidates_per_beam=2
-        )
-    candidates = candidates[0]
-    texts = []
-    for cand in candidates:
-        with tokenizer.as_target_tokenizer():
-            texts.append(tokenizer.decode(cand[1], clean_up_tokenization_spaces=False, skip_special_tokens=True))
-    pass
-
-    # with torch.no_grad():
-    #     candidates = model.generate(
-    #         input_ids=inputs.input_ids.to("cuda"),
-    #         num_beams=32,
-    #         num_beam_groups=8,
-    #         diversity_penalty=1.0,
-    #         length_penalty=1.0,
-    #         num_return_sequences=16,
-    #         max_length=512
-    #     )
-    # pass
+    writer = open(args.output_path, "w")
+    compact_data = []
+    for idx, input_ids in tqdm(enumerate(tokenized_data), total=len(tokenized_data), desc="Sample"):
+        with torch.no_grad():
+            candidates = greedy_multiple(
+                model,
+                tokenizer,
+                input_ids=input_ids.to("cuda"),
+                beam_size=5,
+                min_length=100,
+                max_length=374,
+                alpha=1.0,
+                block_trigram=True,
+                num_return_sequences=16,
+                do_sample=False,
+                max_candidates_per_beam=1
+            )
+        output_item = {**data[idx], 'candidates': candidates}
+        compact_data.append(output_item)
+        writer.write(json.dumps(output_item) + "\n")
+    writer.close()
 
 
 if __name__ == "__main__":
