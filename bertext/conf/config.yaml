@@ -6,10 +6,10 @@ architecture: roberta
 
 num_train_epochs: 10
 learning_rate: 5e-5
-warmup_steps: 10
+warmup_steps: 20
 weight_decay: 0.0
 batch_size: 5
-save_checkpoint_step: 100
+save_checkpoint_step: 40
 keep_checkpoint_max: 3
 gradient_accumulate_steps: 1
 logging_steps: 5
@@ -20,7 +20,7 @@ adam_betas: (0.9, 0.999)
 grad_cache: true
 chunk_size: 16
 max_length: 512
-dropout: 0.0
+dropout:
 
 # inter encoder
 inter_encoder:

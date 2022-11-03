@@ -1,0 +1,18 @@
+data_path: /media/storage/lvloi/projects/vlsp-2022/data/vlsp-2022/jsonl/vlsp_2022_abmusu_validation_data_new.jsonl
+cache_path: /media/storage/lvloi/projects/vlsp-2022/bertext/logs/vlsp_2022_cached_tokenized_sent_valid.jsonl
+tokenizer_path: NlpHUST/vibert4news-base-cased
+pretrained_encoder_model_path: NlpHUST/vibert4news-base-cased
+output_path: tmp
+architecture: roberta
+
+batch_size: 5
+grad_cache: true
+chunk_size: 16
+max_length: 512
+dropout:
+
+# inter encoder
+inter_encoder:
+  num_hidden_layers: 2
+
+seed: 12345
