@@ -2,6 +2,7 @@ import json
 import re
 import string
 import argparse
+import collections
 from tqdm import tqdm
 
 punc_regex = re.compile(f"[{re.escape(string.punctuation)}]")
@@ -18,23 +19,26 @@ def cal_score(cand, ref):
     norm_ref = normalize(ref)
 
     cand_words = norm_cand.split()
-    cand_2_grams = [(cand_words[i], cand_words[i + 1]) for i in range(len(cand_words) - 1)]
+    cand_bigrams = collections.Counter()
+    for idx in range(len(cand_words) - 1):
+        cand_bigrams[tuple(cand_words[idx : idx + 2])] += 1
 
     ref_words = norm_ref.split()
-    ref_2_grams = [(ref_words[i], ref_words[i + 1]) for i in range(len(ref_words) - 1)]
-
-    tp = 0
-    for bigram in cand_2_grams:
-        if bigram in ref_2_grams:
-            tp += 1
+    ref_bigrams = collections.Counter()
+    for idx in range(len(ref_words) - 1):
+        ref_bigrams[tuple(ref_words[idx : idx + 2])] += 1
     
-    if tp == 0:
-        f = 0.0
-    else:
-        p = tp / len(cand_2_grams)
-        r = tp / len(ref_2_grams)
-        f = (2 * p * r) / (p + r)
+    matched_bigrams = cand_bigrams & ref_bigrams
+    num_matched_bigrams = sum(matched_bigrams.values())
+    num_cand_bigrams = sum(cand_bigrams.values())
+    num_ref_bigrams = sum(ref_bigrams.values())
 
+    if num_matched_bigrams == 0:
+        return 0.0
+
+    p = num_matched_bigrams / num_cand_bigrams
+    r = num_matched_bigrams / num_ref_bigrams
+    f = (2 * p * r) / (p + r)
     return f
 
 
