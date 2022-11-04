@@ -6,7 +6,7 @@ import numpy as np
 import os
 import random
 from compare_mt.rouge.rouge_scorer import RougeScorer
-from transformers import BartTokenizer, PegasusTokenizer
+from transformers import BartTokenizer, PegasusTokenizer, T5Tokenizer
 from utils import Recorder
 from data_utils import to_cuda, collate_mp_brio, BrioDataset
 from torch.utils.data import DataLoader
@@ -17,7 +17,7 @@ from model import RankingLoss, BRIO
 import logging
 from label_smoothing_loss import label_smoothing_loss
 from nltk import sent_tokenize, word_tokenize
-from config import cnndm_setting, xsum_setting
+from config import cnndm_setting, xsum_setting, abumusu_settings
 from tqdm import tqdm
 
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
@@ -66,15 +66,19 @@ def evaluation(args):
         cnndm_setting(args)
     elif args.config == "xsum":
         xsum_setting(args)
+    elif args.config == "abmusu":
+        abumusu_settings(args)
     else:
         base_setting(args)
     if args.is_pegasus:
         tok = PegasusTokenizer.from_pretrained(args.model_type)
+    elif args.is_t5:
+        tok = T5Tokenizer.from_pretrained(args.model_type)
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
     test_set = BrioDataset(f"./{args.dataset}/{args.datatype}/test", args.model_type, is_test=True, max_len=512,
-     is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, is_pegasus=args.is_pegasus)
+     is_sorted=False, max_num=args.max_num, is_untok=True, total_len=args.total_len, is_pegasus=args.is_pegasus, is_t5=args.is_t5)
     batch_size = 4
     dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
     # build models
@@ -337,6 +341,8 @@ def run(rank, args):
         cnndm_setting(args)
     elif args.config == "xsum":
         xsum_setting(args)
+    elif args.config == "abmusu":
+        abumusu_settings(args)
     else:
         base_setting(args)
     # task initialization
@@ -352,14 +358,17 @@ def run(rank, args):
         id = len(os.listdir("./cache"))
         recorder = Recorder(id, args.log)
     # build dataloader
+    assert not (args.is_pegasus and args.is_t5), "is_pegasus and is_t5 cannot be True at the same time."
     if args.is_pegasus:
         tok = PegasusTokenizer.from_pretrained(args.model_type)
+    elif args.is_t5:
+        tok = T5Tokenizer.from_pretrained(args.model_type)
     else:
         tok = BartTokenizer.from_pretrained(args.model_type)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=False)
     collate_fn_val = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
-    train_set = BrioDataset(f"./{args.dataset}/{args.datatype}/train", args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
-    val_set = BrioDataset(f"./{args.dataset}/{args.datatype}/val", args.model_type, is_test=True, max_len=512, is_sorted=False, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus)
+    train_set = BrioDataset(f"./{args.dataset}/{args.datatype}/train_sampled", args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus, is_t5=args.is_t5)
+    val_set = BrioDataset(f"./{args.dataset}/{args.datatype}/val_sampled", args.model_type, is_test=True, max_len=512, is_sorted=False, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus, is_t5=args.is_t5)
     if is_mp:
         train_sampler = torch.utils.data.distributed.DistributedSampler(
     	 train_set, num_replicas=world_size, rank=rank, shuffle=True)

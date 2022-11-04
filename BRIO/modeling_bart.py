@@ -1863,9 +1863,9 @@ class CustomBartModel(BartPretrainedModel):
         if self.is_scoring_mode:
             cand_num = decoder_input_ids.size(1)
             encoder_hidden_states = encoder_outputs[0]
-            encoder_hidden_states = torch.repeat_interleave(encoder_hidden_states, cand_num, dim=0)
+            encoder_hidden_states = torch.repeat_interleave(encoder_hidden_states, cand_num, dim=0) # [bsz * num_cands, encoder_seq_len]
             attention_mask = torch.repeat_interleave(attention_mask, cand_num, dim=0)
-            decoder_input_ids = decoder_input_ids.view(-1, decoder_input_ids.size(-1))
+            decoder_input_ids = decoder_input_ids.view(-1, decoder_input_ids.size(-1)) # [bsz * num_cands, decoder_seq_len]
             decoder_attention_mask = decoder_attention_mask.view(-1, decoder_attention_mask.size(-1))
         else:
             encoder_hidden_states = encoder_outputs[0]

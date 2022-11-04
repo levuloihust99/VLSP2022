@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 from modeling_bart import BartScorer
 from modeling_pegasus import PegasusScorer
+from modeling_t5 import T5Scorer
 
 
 def RankingLoss(score, summary_score=None, margin=0, gold_margin=0, gold_weight=1, no_gold=False, no_cand=False):
@@ -38,10 +39,13 @@ def RankingLoss(score, summary_score=None, margin=0, gold_margin=0, gold_weight=
 
 class BRIO(nn.Module):
     
-    def __init__(self, mname, pad_token_id, is_pegasus=False):
+    def __init__(self, mname, pad_token_id, is_pegasus=False, is_t5=False):
         super(BRIO, self).__init__()
+        assert not (is_pegasus and is_t5), "is_pegasus and is_t5 cannot be True at the same time."
         if is_pegasus:
             self.model = PegasusScorer.from_pretrained(mname, cache_dir="./local_cache")
+        elif is_t5:
+            self.model = T5Scorer.from_pretrained(mname, cache_dir="./local_cache")
         else:
             self.model = BartScorer.from_pretrained(mname, cache_dir="./local_cache")
         self.pad_token_id = pad_token_id

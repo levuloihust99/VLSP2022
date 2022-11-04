@@ -12,7 +12,7 @@ def to_cuda(batch, gpuid):
 
 
 class BrioDataset(Dataset):
-    def __init__(self, fdir, model_type, max_len=-1, is_test=False, total_len=512, is_sorted=True, max_num=-1, is_untok=True, is_pegasus=False, num=-1):
+    def __init__(self, fdir, model_type, max_len=-1, is_test=False, total_len=512, is_sorted=True, max_num=-1, is_untok=True, is_pegasus=False, is_t5=False, num=-1):
         """ data format: article, abstract, [(candidiate_i, score_i)] """
         self.isdir = os.path.isdir(fdir)
         if self.isdir:
@@ -39,6 +39,7 @@ class BrioDataset(Dataset):
         self.maxnum = max_num
         self.is_untok = is_untok
         self.is_pegasus = is_pegasus
+        self.is_t5 = is_t5
 
     def __len__(self):
         return self.num
@@ -80,6 +81,12 @@ class BrioDataset(Dataset):
             _candidate_ids = candidate_ids.new_zeros(candidate_ids.size(0), candidate_ids.size(1) + 1)
             _candidate_ids[:, 1:] = candidate_ids.clone()
             _candidate_ids[:, 0] = self.tok.pad_token_id
+            candidate_ids = _candidate_ids
+        if self.is_t5:
+            # add start token
+            _candidate_ids = candidate_ids.new_zeros(candidate_ids.shape)
+            _candidate_ids[..., 1:] = _candidate_ids[..., :-1].clone()
+            _candidate_ids[..., 0] = self.tok.pad_token_id
             candidate_ids = _candidate_ids
         result = {
             "src_input_ids": src_input_ids, 

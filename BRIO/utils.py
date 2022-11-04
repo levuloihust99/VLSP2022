@@ -2,7 +2,8 @@ import os
 from os.path import exists, join
 import json
 import torch
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
+from tensorboardX import SummaryWriter
 from datetime import datetime
 
 
