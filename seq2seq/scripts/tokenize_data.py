@@ -21,7 +21,7 @@ def preprocess_fn(tokenizer, features):
     return {'document/input_ids': documents.input_ids, 'summary/input_ids': summaries.input_ids}
 
 
-def preprocess_multi_doc(tokenizer, features, model_type='base'):
+def preprocess_multi_doc(tokenizer, features, model_type='base', max_length=4096):
     documents = []
     summaries = []
 
@@ -33,8 +33,8 @@ def preprocess_multi_doc(tokenizer, features, model_type='base'):
         documents.append(concat_text)
         summaries.append(summary)
     
-    documents = tokenizer(documents, max_length=4096, truncation=True)
-    summaries = tokenizer(summaries, max_length=4096, truncation=True)
+    documents = tokenizer(documents, max_length=max_length, truncation=True)
+    summaries = tokenizer(summaries, max_length=max_length, truncation=True)
 
     return {'document/input_ids': documents.input_ids, 'summary/input_ids': summaries.input_ids}
 
@@ -46,6 +46,7 @@ def main():
     parser.add_argument("--model-type", choices=['base', 'large'], default='base')
     parser.add_argument("--data-path", required=True)
     parser.add_argument("--output-path", required=True)
+    parser.add_argument("--max-length", type=int, default=4096)
     args = parser.parse_args()
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)  
@@ -56,7 +57,7 @@ def main():
             data.append(json.loads(line.strip()))
 
     dataset = Dataset.from_list(data)
-    dataset = dataset.map(lambda features: preprocess_multi_doc(tokenizer, features, args.model_type), batched=True,
+    dataset = dataset.map(lambda features: preprocess_multi_doc(tokenizer, features, args.model_type, args.max_length), batched=True,
         num_proc=10, batch_size=10, remove_columns=['single_documents', 'summary'])
     
     writer = open(args.output_path, "w")
