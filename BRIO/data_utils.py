@@ -88,8 +88,8 @@ class BrioDataset(Dataset):
             candidate_ids = _candidate_ids
         if self.is_t5:
             # add start token
-            _candidate_ids = candidate_ids.new_zeros(candidate_ids.shape)
-            _candidate_ids[..., 1:] = candidate_ids[..., :-1].clone()
+            _candidate_ids = candidate_ids.new_zeros(candidate_ids.size(0), candidate_ids.size(1) + 1)
+            _candidate_ids[..., 1:] = candidate_ids.clone()
             _candidate_ids[..., 0] = self.tok.pad_token_id
             candidate_ids = _candidate_ids
         result = {
