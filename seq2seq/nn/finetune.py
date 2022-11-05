@@ -4,10 +4,17 @@ import hydra
 import torch
 
 from datasets import Dataset
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq, Seq2SeqTrainer, TrainingArguments, Seq2SeqTrainingArguments
+from transformers import (
+    AutoTokenizer, AutoModelForSeq2SeqLM, DataCollatorForSeq2Seq,
+    Seq2SeqTrainer, TrainingArguments, Seq2SeqTrainingArguments, T5Config
+)
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from omegaconf import DictConfig
+import evaluate
+import numpy as np
+
+metric = evaluate.load('rouge')
 
 
 def process_fn(feature):
@@ -20,6 +27,23 @@ def process_fn(feature):
     }
 
 
+def get_compute_metrics(tokenizer):
+    def compute_metrics(eval_preds):
+        metric = evaluate.load("rouge")
+        generated_tokens, labels = eval_preds
+        with tokenizer.as_target_tokenizer():
+            generated_texts = [
+                tokenizer.decode(tokens, clean_up_tokenization_spaces=False, skip_special_tokens=True)
+                for tokens in generated_tokens
+            ]
+            references = [
+                tokenizer.decode(tokens, clean_up_tokenization_spaces=False, skip_special_tokens=True)
+                for tokens in labels
+            ]
+        return metric.compute(predictions=generated_texts, references=references)
+    return compute_metrics
+
+
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig):
     # print config
@@ -27,7 +51,8 @@ def main(cfg: DictConfig):
         print("{}--> {}".format(k + " " * (40 - len(k)), v))
 
     tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(cfg.model_name)
+    config = T5Config.from_pretrained(cfg.model_name, gradient_checkpointing=cfg.gradient_checkpointing)
+    model = AutoModelForSeq2SeqLM.from_pretrained(cfg.model_name, config=config)
 
     train_data = []
     with open(cfg.train_data_path, "r") as reader:
@@ -61,7 +86,7 @@ def main(cfg: DictConfig):
         logging_dir=cfg.logging_dir,
         group_by_length=cfg.group_by_length,
         save_strategy=cfg.save_strategy,
-        # evaluation_strategy=cfg.save_strategy,
+        evaluation_strategy=cfg.save_strategy,
         save_total_limit=cfg.save_total_limit,
         fp16=cfg.fp16,
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
@@ -70,8 +95,10 @@ def main(cfg: DictConfig):
         max_grad_norm=cfg.max_grad_norm,
         label_smoothing_factor=cfg.label_smoothing_factor,
         report_to=['tensorboard'],
-        # load_best_model_at_end=True,
-        # metric_for_best_model="eval_loss"
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_rouge2",
+        predict_with_generate=True,
+        generation_max_length=1024
     )
 
     trainer = Seq2SeqTrainer(
@@ -80,6 +107,7 @@ def main(cfg: DictConfig):
         train_dataset=tokenized_train_dataset,
         eval_dataset=tokenized_dev_dataset,
         data_collator=data_collator,
+        compute_metrics=get_compute_metrics(tokenizer)
     )
 
     trainer.train()

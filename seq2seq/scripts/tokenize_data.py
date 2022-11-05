@@ -39,6 +39,22 @@ def preprocess_multi_doc(tokenizer, features, model_type='base', max_length=4096
     return {'document/input_ids': documents.input_ids, 'summary/input_ids': summaries.input_ids}
 
 
+def preprocess_single_doc(tokenizer, features, model_type="base", max_length=4096):
+    documents = []
+    summaries = []
+
+    for doc, summary in zip(features['document'], features['summary']):
+        if model_type == "large":
+            doc = "vietnews: " + doc
+        documents.append(doc)
+        summaries.append(summary)
+    
+    documents = tokenizer(documents, max_length=max_length, truncation=True)
+    summaries = tokenizer(summaries, max_length=max_length, truncation=True)
+
+    return {'document/input_ids': documents.input_ids, 'summary/input_ids': summaries.input_ids}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", default="VietAI/vit5-base-vietnews-summarization")
@@ -57,8 +73,10 @@ def main():
             data.append(json.loads(line.strip()))
 
     dataset = Dataset.from_list(data)
-    dataset = dataset.map(lambda features: preprocess_multi_doc(tokenizer, features, args.model_type, args.max_length), batched=True,
-        num_proc=10, batch_size=10, remove_columns=['single_documents', 'summary'])
+    # dataset = dataset.map(lambda features: preprocess_multi_doc(tokenizer, features, args.model_type, args.max_length), batched=True,
+    #     num_proc=10, batch_size=10, remove_columns=['single_documents', 'summary'])
+    dataset = dataset.map(lambda features: preprocess_single_doc(tokenizer, features, args.model_type, args.max_length), batched=True,
+        num_proc=10, batch_size=10, remove_columns=['document', 'summary'])
     
     writer = open(args.output_path, "w")
     for idx in range(len(dataset)):
