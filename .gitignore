@@ -3,3 +3,4 @@ data/
 .git/
 checkpoints/
 pyrouge/
+compare-mt/

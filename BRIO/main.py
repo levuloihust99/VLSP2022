@@ -4,6 +4,7 @@ import torch.optim as optim
 import argparse
 import numpy as np
 import os
+import time
 import random
 from compare_mt.rouge.rouge_scorer import RougeScorer
 from transformers import BartTokenizer, PegasusTokenizer, T5Tokenizer
@@ -437,6 +438,7 @@ def run(rank, args):
         step_cnt = 0
         epoch_step = 0
         avg_loss = 0
+        t0 = time.perf_counter()
         for (i, batch) in enumerate(dataloader):
             if args.cuda:
                 to_cuda(batch, gpuid)
@@ -497,6 +499,8 @@ def run(rank, args):
                 recorder.plot("ranking_loss", {"loss": avg_ranking_loss / args.report_freq}, all_step_cnt)
                 recorder.print()
                 avg_mle_loss, avg_ranking_loss, avg_loss = 0, 0, 0
+                print("\x1b[38;5;3mElapsed time: {}\x1b[0m".format(time.perf_counter() - t0))
+                t0 = time.perf_counter()
             del similarity, gold_similarity, loss, mle_loss, ranking_loss, output, probs
 
             if all_step_cnt % args.eval_interval == 0 and all_step_cnt != 0 and step_cnt == 0:

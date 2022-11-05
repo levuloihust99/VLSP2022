@@ -108,6 +108,6 @@ def abmusu_settings(args):
     args.is_pegasus = getattr(args, "is_pegasus", False)
     args.is_t5 = getattr(args, 'is_t5', True)
     args.adding = getattr(args, "adding", 0)
-    args.eval_interval = getattr(args, "eval_interval", 3)
+    args.eval_interval = getattr(args, "eval_interval", 100)
     args.num_beams = getattr(args, "num_beams", 4)
     args.fp16 = getattr(args, "fp16", False)
