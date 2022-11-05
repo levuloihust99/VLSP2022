@@ -2,7 +2,7 @@ from torch.utils.data import Dataset
 import os
 import json
 import torch
-from transformers import BartTokenizer, PegasusTokenizer
+from transformers import BartTokenizer, PegasusTokenizer, T5Tokenizer
 
 
 def to_cuda(batch, gpuid):
@@ -30,6 +30,8 @@ class BrioDataset(Dataset):
                 self.num = len(self.files)
         if is_pegasus:
             self.tok = PegasusTokenizer.from_pretrained(model_type, verbose=False)
+        elif is_t5:
+            self.tok = T5Tokenizer.from_pretrained(model_type, verbose=False)
         else:
             self.tok = BartTokenizer.from_pretrained(model_type, verbose=False)
         self.maxlen = max_len
@@ -56,7 +58,8 @@ class BrioDataset(Dataset):
         else:
             article = data["article"]
         src_txt = " ".join(article)
-        src = self.tok.batch_encode_plus([src_txt], max_length=self.total_len, return_tensors="pt", pad_to_max_length=False, truncation=True)
+        # src = self.tok.batch_encode_plus([src_txt], max_length=self.total_len, return_tensors="pt", pad_to_max_length=False, truncation=True)
+        src = self.tok([src_txt], max_length=self.total_len, return_tensors='pt', truncation=True)
         src_input_ids = src["input_ids"]
         src_input_ids = src_input_ids.squeeze(0)
         if self.is_untok:
@@ -74,7 +77,8 @@ class BrioDataset(Dataset):
         if not self.is_untok:
             candidates = _candidates
         cand_txt = [" ".join(abstract)] + [" ".join(x[0]) for x in candidates]
-        cand = self.tok.batch_encode_plus(cand_txt, max_length=self.maxlen, return_tensors="pt", pad_to_max_length=False, truncation=True, padding=True)
+        # cand = self.tok.batch_encode_plus(cand_txt, max_length=self.maxlen, return_tensors="pt", pad_to_max_length=False, truncation=True, padding=True)
+        cand = self.tok(cand_txt, return_tensors='pt', padding=True)
         candidate_ids = cand["input_ids"]
         if self.is_pegasus:
             # add start token
@@ -85,7 +89,7 @@ class BrioDataset(Dataset):
         if self.is_t5:
             # add start token
             _candidate_ids = candidate_ids.new_zeros(candidate_ids.shape)
-            _candidate_ids[..., 1:] = _candidate_ids[..., :-1].clone()
+            _candidate_ids[..., 1:] = candidate_ids[..., :-1].clone()
             _candidate_ids[..., 0] = self.tok.pad_token_id
             candidate_ids = _candidate_ids
         result = {

@@ -45,7 +45,7 @@ class BRIO(nn.Module):
         if is_pegasus:
             self.model = PegasusScorer.from_pretrained(mname, cache_dir="./local_cache")
         elif is_t5:
-            self.model = T5Scorer.from_pretrained(mname, cache_dir="./local_cache")
+            self.model = T5Scorer.from_pretrained(mname, cache_dir="./local_cache", gradient_checkpointing=True, use_cache=False)
         else:
             self.model = BartScorer.from_pretrained(mname, cache_dir="./local_cache")
         self.pad_token_id = pad_token_id
@@ -89,10 +89,10 @@ class BRIO(nn.Module):
         return output
 
     def scoring_mode(self):
-        self.model.model.scoring_mode()
+        self.model.scoring_mode()
 
     def generation_mode(self):
-        self.model.model.generation_mode()
+        self.model.generation_mode()
 
     def generate(
         self,

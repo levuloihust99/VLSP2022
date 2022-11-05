@@ -17,8 +17,9 @@ from model import RankingLoss, BRIO
 import logging
 from label_smoothing_loss import label_smoothing_loss
 from nltk import sent_tokenize, word_tokenize
-from config import cnndm_setting, xsum_setting, abumusu_settings
+from config import cnndm_setting, xsum_setting, abmusu_settings
 from tqdm import tqdm
+from torch.cuda.amp import GradScaler, autocast
 
 logging.getLogger("transformers.tokenization_utils").setLevel(logging.ERROR)
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
@@ -67,7 +68,7 @@ def evaluation(args):
     elif args.config == "xsum":
         xsum_setting(args)
     elif args.config == "abmusu":
-        abumusu_settings(args)
+        abmusu_settings(args)
     else:
         base_setting(args)
     if args.is_pegasus:
@@ -233,7 +234,7 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
     _model.scoring_mode()
     with torch.no_grad():
         # scoring
-        for (i, batch) in enumerate(dataloader):
+        for (i, batch) in tqdm(enumerate(dataloader), total=len(dataloader)):
             if args.cuda:
                 to_cuda(batch, device)
             samples = batch["data"]
@@ -283,7 +284,7 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
         def process(x):
             return sent_tokenize(" ".join(word_tokenize(x.strip())))
         with torch.no_grad():
-            for (i, batch) in enumerate(gen_dataloader):
+            for (i, batch) in tqdm(enumerate(gen_dataloader), total=len(gen_dataloader)):
                 if args.cuda:
                     to_cuda(batch, device)
                 samples = batch["data"]
@@ -292,8 +293,9 @@ def test(dataloader, gen_dataloader, model, args, tok, gpuid, do_sample=False):
                 summaries = _model.generate(
                     input_ids=dct["input_ids"].to(device),
                     attention_mask=dct["attention_mask"].to(device),
-                    max_length=args.gen_max_len + 2,  # +2 from original because we start at step=1 and stop before max_length
-                    min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
+                    # max_length=args.gen_max_len + 2,  # +2 from original because we start at step=1 and stop before max_length
+                    # min_length=args.gen_min_len + 1,  # +1 from original because we start at step=1
+                    max_length=374,
                     no_repeat_ngram_size=3,
                     num_beams=args.num_beams,
                     length_penalty=args.length_penalty,
@@ -342,7 +344,7 @@ def run(rank, args):
     elif args.config == "xsum":
         xsum_setting(args)
     elif args.config == "abmusu":
-        abumusu_settings(args)
+        abmusu_settings(args)
     else:
         base_setting(args)
     # task initialization
@@ -367,7 +369,7 @@ def run(rank, args):
         tok = BartTokenizer.from_pretrained(args.model_type)
     collate_fn = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=False)
     collate_fn_val = partial(collate_mp_brio, pad_token_id=tok.pad_token_id, is_test=True)
-    train_set = BrioDataset(f"./{args.dataset}/{args.datatype}/train_sampled", args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus, is_t5=args.is_t5)
+    train_set = BrioDataset(f"./{args.dataset}/{args.datatype}/train", args.model_type, max_len=args.max_len, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus, is_t5=args.is_t5)
     val_set = BrioDataset(f"./{args.dataset}/{args.datatype}/val_sampled", args.model_type, is_test=True, max_len=512, is_sorted=False, max_num=args.max_num, total_len=args.total_len, is_pegasus=args.is_pegasus, is_t5=args.is_t5)
     if is_mp:
         train_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -383,7 +385,7 @@ def run(rank, args):
         val_gen_dataloader = DataLoader(val_set, batch_size=8, shuffle=False, num_workers=4, collate_fn=collate_fn_val)
     # build models
     model_path = args.pretrained if args.pretrained is not None else args.model_type
-    model = BRIO(model_path, tok.pad_token_id, is_pegasus=args.is_pegasus)
+    model = BRIO(model_path, tok.pad_token_id, is_pegasus=args.is_pegasus, is_t5=args.is_t5)
     if len(args.model_pt) > 0:
         model.load_state_dict(torch.load(os.path.join("./cache", args.model_pt), map_location=f'cuda:{gpuid}'))
     if args.cuda:
@@ -420,10 +422,14 @@ def run(rank, args):
     if args.dataset == "xsum":
         def eval_fn(rouge1, rouge2, rougeLsum):
             return 1 - 2 * rouge1 * rouge2 / (rouge1 + rouge2)
+    elif args.dataset == "abmusu":
+        def eval_fn(rouge1, rouge2, rougeLsum):
+            return rouge2
     else:
         def eval_fn(rouge1, rouge2, rougeLsum):
             return 1 - (rouge1 * rouge2 + rougeLsum) / 3
     # start training
+    scaler = GradScaler() if args.fp16 else None
     for epoch in range(args.epoch):
         s_optimizer.zero_grad()
         avg_ranking_loss = 0
@@ -436,7 +442,11 @@ def run(rank, args):
                 to_cuda(batch, gpuid)
             step_cnt += 1
             # forward pass
-            output = model(batch["src_input_ids"], batch["candidate_ids"], args.normalize, args.score_mode, args.length_penalty, adding=args.adding)
+            if args.fp16:
+                with autocast():
+                    output = model(batch["src_input_ids"], batch["candidate_ids"], args.normalize, args.score_mode, args.length_penalty, adding=args.adding)
+            else:
+                output = model(batch["src_input_ids"], batch["candidate_ids"], args.normalize, args.score_mode, args.length_penalty, adding=args.adding)
             similarity, gold_similarity = output['score'], output['summary_score']
             similarity = similarity * args.scale
             gold_similarity = gold_similarity * args.scale
@@ -450,9 +460,14 @@ def run(rank, args):
             avg_loss += loss.item()
             avg_mle_loss += mle_loss.item() / args.accumulate_step
             avg_ranking_loss += ranking_loss.item() / args.accumulate_step
-            loss.backward()
+            if args.fp16:
+                scaler.scale(loss).backward()
+            else:
+                loss.backward()
             if step_cnt == args.accumulate_step:
                 # updating
+                if args.fp16:
+                    scaler.unscale_(s_optimizer)
                 if args.grad_norm > 0:
                     nn.utils.clip_grad_norm_(model.parameters(), args.grad_norm)
                 step_cnt = 0
@@ -462,7 +477,11 @@ def run(rank, args):
                 lr = args.max_lr * min(all_step_cnt ** (-0.5), all_step_cnt * (args.warmup_steps ** (-1.5)))
                 for param_group in s_optimizer.param_groups:
                     param_group['lr'] = lr
-                s_optimizer.step()
+                if args.fp16:
+                    scaler.step(s_optimizer)
+                    scaler.update()
+                else:
+                    s_optimizer.step()
                 s_optimizer.zero_grad()
             if epoch_step % args.report_freq == 0 and step_cnt == 0 and is_master:
                 # report stats
@@ -515,9 +534,9 @@ def run(rank, args):
                 # save current model
                 if is_master:
                     if is_mp:
-                        recorder.save(model.module, "model_cur.bin")
+                        recorder.save(model.module, "model_cur.{}.bin".format(all_step_cnt))
                     else:
-                        recorder.save(model, "model_cur.bin")
+                        recorder.save(model, "model_cur.{}.bin".format(all_step_cnt))
                     recorder.save(s_optimizer, "optimizer.bin")
 
 

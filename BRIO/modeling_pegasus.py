@@ -1702,6 +1702,12 @@ class PegasusScorer(PegasusPreTrainedModel):
 
         self.init_weights()
 
+    def scoring_mode(self):
+        self.model.scoring_mode()
+    
+    def generation_mode(self):
+        self.model.generation_mode()
+
     def get_encoder(self):
         return self.model.get_encoder()
 

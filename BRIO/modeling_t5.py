@@ -19,7 +19,7 @@ from transformers.modeling_outputs import (
 )
 from transformers.utils.model_parallel_utils import assert_device_map, get_device_map
 
-logger = logging.get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _CONFIG_FOR_DOC = "T5Config"
 PARALLELIZE_DOCSTRING = r"""
@@ -212,6 +212,12 @@ class T5Scorer(T5PreTrainedModel):
         self.device_map = None
 
         self.is_scoring_mode = True
+    
+    def scoring_mode(self):
+        self.is_scoring_mode = True
+    
+    def generation_mode(self):
+        self.is_scoring_mode = False
 
     @add_start_docstrings(PARALLELIZE_DOCSTRING)
     def parallelize(self, device_map=None):

@@ -34,6 +34,7 @@ def cnndm_setting(args):
     args.adding = getattr(args, "adding", 0)
     args.eval_interval = getattr(args, "eval_interval", 1000)
     args.num_beams = getattr(args, "num_beams", 4)
+    args.fp16 = getattr(args, "fp16", True)
 
 def xsum_setting(args):
     # default setting for xsum
@@ -71,12 +72,13 @@ def xsum_setting(args):
     args.adding = getattr(args, "adding", 0)
     args.eval_interval = getattr(args, "eval_interval", 1000)
     args.num_beams = getattr(args, "num_beams", 8)
+    args.fp16 = getattr(args, "fp16", False)
 
-def abumusu_settings(args):
+def abmusu_settings(args):
     # default setting for cnndm
     args.batch_size = getattr(args, 'batch_size', 1)
     args.epoch = getattr(args, 'epoch', 50)
-    args.report_freq = getattr(args, "report_freq", 10)
+    args.report_freq = getattr(args, "report_freq", 1)
     args.accumulate_step = getattr(args, "accumulate_step", 8)
     args.margin = getattr(args, "margin", 0.001)
     args.gold_margin = getattr(args, "gold_margin", 0)
@@ -95,16 +97,17 @@ def abumusu_settings(args):
     args.score_mode = getattr(args, "score_mode", "log")
     args.datatype = getattr(args, "datatype", "diverse")
     args.dataset = getattr(args, "dataset", "abmusu")
-    args.max_len = getattr(args, "max_len", 120)
+    args.max_len = getattr(args, "max_len", 120) # do not use for training
     args.max_num = getattr(args, "max_num", 16)
     args.smooth = getattr(args, "smooth", 0.1)
-    args.total_len = getattr(args, "total_len", 1024)
+    args.total_len = getattr(args, "total_len", 4096)
     args.length_penalty = getattr(args, "length_penalty", 1.0)
     args.do_sample = getattr(args, "do_sample", True)
     args.gen_max_len = getattr(args, "gen_max_len", 140)
     args.gen_min_len = getattr(args, "gen_min_len", 55)
     args.is_pegasus = getattr(args, "is_pegasus", False)
-    args.is_t5 = getattr(args, 'is_pegasus', True)
+    args.is_t5 = getattr(args, 'is_t5', True)
     args.adding = getattr(args, "adding", 0)
-    args.eval_interval = getattr(args, "eval_interval", 100)
+    args.eval_interval = getattr(args, "eval_interval", 3)
     args.num_beams = getattr(args, "num_beams", 4)
+    args.fp16 = getattr(args, "fp16", False)
