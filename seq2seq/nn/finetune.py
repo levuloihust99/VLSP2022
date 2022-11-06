@@ -94,7 +94,7 @@ def main(cfg: DictConfig):
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, return_tensors="pt")
     
     training_args = Seq2SeqTrainingArguments(
-        "tmp/",
+        cfg.output_dir,
         do_train=cfg.do_train,
         do_eval=cfg.do_eval,
         num_train_epochs=cfg.num_train_epochs,
@@ -118,7 +118,7 @@ def main(cfg: DictConfig):
         load_best_model_at_end=True,
         metric_for_best_model="rouge-2-f",
         predict_with_generate=True,
-        generation_max_length=374
+        generation_max_length=cfg.generation_max_length
     )
 
     trainer = Seq2SeqTrainer(

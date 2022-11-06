@@ -4,10 +4,7 @@ import os
 import subprocess
 import signal
 import time
-
-
-CHECKPOINT_DIR = "/home/lvloi/projects/vlsp-2022/seq2seq/tmp"
-CHECKPOINT_STATE_FILE = "/home/lvloi/projects/vlsp-2022/backup_state.txt"
+import argparse
 
 
 def signal_handler(signalnum, stackframe):
@@ -20,26 +17,32 @@ signal.signal(signal.SIGCHLD, signal_handler)
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint-dir", required=True)
+    parser.add_argument("--checkpoint-state-file", required=True)
+    parser.add_argument("--remote-dir", required=True)
+    args = parser.parse_args()
+
     backed_up_checkpoints = []
-    with open(CHECKPOINT_STATE_FILE, "r") as reader:
+    with open(args.checkpoint_state_file, "r") as reader:
         for line in reader:
             backed_up_checkpoints.append(line.strip())
     print("Backed up checkpoints: {}".format(backed_up_checkpoints))
     
-    current_checkpoints = os.listdir(CHECKPOINT_DIR)
+    current_checkpoints = os.listdir(args.checkpoint_dir)
     print("Current checkpoints: {}".format(current_checkpoints))
     proc_tracker = []
     cp_to_be_backuped = []
     for cp in current_checkpoints:
         if cp not in backed_up_checkpoints:
             cp_steps = int(cp[len("checkpoint-"):])
-            proc_tracker.append(subprocess.Popen(["scp", os.path.join(CHECKPOINT_DIR, cp, 'pytorch_model.bin'),
-                "cist-P100:/media/lvloi/backup/A100/vlsp-2022/seq2seq/tmp/pytorch_model_{}.bin".format(cp_steps)],
+            proc_tracker.append(subprocess.Popen(["scp", os.path.join(args.checkpoint_dir, cp, 'pytorch_model.bin'),
+                os.path.join(args.remote_dir, "pytorch_model_{}.bin".format(cp_steps))],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT))
             print(proc_tracker[-1].pid)
             cp_to_be_backuped.append(cp)
     cp_to_be_backuped = sorted(cp_to_be_backuped, key=lambda x: int(x[len('checkpoint-'):]))
-    with open(CHECKPOINT_STATE_FILE, "a") as writer:
+    with open(args.checkpoint_state_file, "a") as writer:
         for cp in cp_to_be_backuped:
             writer.write(cp + "\n")
     
