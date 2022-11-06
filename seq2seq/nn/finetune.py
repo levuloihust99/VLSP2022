@@ -13,8 +13,7 @@ from torch.utils.data import DataLoader
 from omegaconf import DictConfig
 import evaluate
 import numpy as np
-
-metric = evaluate.load('rouge')
+from rouge_metric import PyRouge
 
 
 def process_fn(feature):
@@ -29,18 +28,39 @@ def process_fn(feature):
 
 def get_compute_metrics(tokenizer):
     def compute_metrics(eval_preds):
-        metric = evaluate.load("rouge")
         generated_tokens, labels = eval_preds
+        generated_tokens[generated_tokens == -100] = tokenizer.pad_token_id
+        labels[labels == -100] = tokenizer.pad_token_id
+
         with tokenizer.as_target_tokenizer():
             generated_texts = [
                 tokenizer.decode(tokens, clean_up_tokenization_spaces=False, skip_special_tokens=True)
                 for tokens in generated_tokens
             ]
-            references = [
-                tokenizer.decode(tokens, clean_up_tokenization_spaces=False, skip_special_tokens=True)
-                for tokens in labels
-            ]
-        return metric.compute(predictions=generated_texts, references=references)
+            try:
+                references = [
+                    [tokenizer.decode(tokens, clean_up_tokenization_spaces=False, skip_special_tokens=True)]
+                    for tokens in labels
+                ]
+            except Exception as e:
+                import pickle
+                import traceback
+
+                with open("tensor_state.pkl", "wb") as writer:
+                    pickle.dump({'generated_tokens': generated_tokens, 'labels': labels}, writer)
+                print(traceback.format_exc())
+                raise KeyboardInterrupt
+
+        rouge = PyRouge(rouge_n=(1, 2), rouge_l=True, rouge_w=True,
+                    rouge_w_weight=1.2, rouge_s=True, rouge_su=True, skip_gap=4)
+        metrics = rouge.evaluate(generated_texts, references)
+        output = {}
+        for metric_type, metric_value in metrics.items():
+            if metric_type in {'rouge-1', 'rouge-2', 'rouge-l'}:
+                for metric_subtype, metric_subvalue in metric_value.items():
+                    output["{}-{}".format(metric_type, metric_subtype)] = metric_subvalue
+        return output
+
     return compute_metrics
 
 
@@ -96,9 +116,9 @@ def main(cfg: DictConfig):
         label_smoothing_factor=cfg.label_smoothing_factor,
         report_to=['tensorboard'],
         load_best_model_at_end=True,
-        metric_for_best_model="eval_rouge2",
+        metric_for_best_model="rouge-2-f",
         predict_with_generate=True,
-        generation_max_length=1024
+        generation_max_length=374
     )
 
     trainer = Seq2SeqTrainer(
@@ -110,7 +130,7 @@ def main(cfg: DictConfig):
         compute_metrics=get_compute_metrics(tokenizer)
     )
 
-    trainer.train()
+    trainer.train(cfg.resume_from_checkpoint)
 
 
 if __name__ == "__main__":
