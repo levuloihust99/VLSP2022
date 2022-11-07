@@ -5,6 +5,8 @@ conf/
 outputs/
 pretrained/
 /*.txt
-tmp/
+tmp*/
 submission/
 **__pycache__/
+tensorboard*
+notebook.ipynb
