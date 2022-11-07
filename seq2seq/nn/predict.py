@@ -145,6 +145,9 @@ def main():
     parser.add_argument("--write-textline", default=False, type=eval)
     args = parser.parse_args()
 
+    for k, v in args.__dict__.items():
+        print("{}--> {}".format(k + " " * (40 - len(k)), v))
+
     # load data
     print("Loading data...")
     data = []
