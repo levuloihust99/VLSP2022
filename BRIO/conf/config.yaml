@@ -1,0 +1,10 @@
+defaults:
+  - root: base
+  - optimizer: adamw
+
+gpuid: []
+keep_checkpoint_max: 5
+log: true
+model_pt:
+cuda: true
+resume_from_checkpoint:

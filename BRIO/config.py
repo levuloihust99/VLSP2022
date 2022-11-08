@@ -1,3 +1,42 @@
+def base_setting(args):
+    args.batch_size = getattr(args, 'batch_size', 1) # batch size on one gpu, one step
+    args.epoch = getattr(args, 'epoch', 100) 
+    args.report_freq = getattr(args, "report_freq", 100) # report frequency
+    args.accumulate_step = getattr(args, "accumulate_step", 32) # accumulate gradients steps
+    args.margin = getattr(args, "margin", 0.001) # margin for ranking loss on candidate summaries
+    args.gold_margin = getattr(args, "gold_margin", 0) # margin for ranking loss on gold summaries
+    args.gold_weight = getattr(args, "gold_weight", 0) # weight for ranking loss on gold summaries
+    args.mle_weight = getattr(args, "mle_weight", 1) # weight for mle loss on gold summaries
+    args.rank_weight = getattr(args, "rank_weight", 1) # weight for ranking loss on candidate summaries
+    args.model_type = getattr(args, "model_type", "facebook/bart-large-cnn") # model type
+    args.warmup_steps = getattr(args, "warmup_steps", 10000) # warmup steps
+    args.normalize = getattr(args, "normalize", True) # normalize predicited likelihood
+    args.grad_norm = getattr(args, "grad_norm", 0) # gradient norm
+    args.seed = getattr(args, "seed", 970903) # random seed
+    args.no_gold = getattr(args, "no_gold", False) # whether to use gold summaries
+    args.pretrained = getattr(args, "pretrained", None) # pretrained model path
+    args.max_lr = getattr(args, "max_lr", 2e-3) # max learning rate (* 1e-2)
+    args.scale = getattr(args, "scale", 1) # scale of ranking loss
+    args.score_mode = getattr(args, "score_mode", "log") # use log-likelihood for ranking loss
+    args.datatype = getattr(args, "datatype", "diverse") # data type
+    args.dataset = getattr(args, "dataset", "cnndm") # dataset
+    args.max_summ_len = getattr(args, "max_summ_len", 120) # max length of summary
+    args.max_num = getattr(args, "max_num", 16) # max number of candidate summaries
+    args.smooth = getattr(args, "smooth", 0.1) # label smoothing
+    args.max_doc_len = getattr(args, "max_doc_len", 1024) # total length of source article
+    args.length_penalty = getattr(args, "length_penalty", 2.0) # length penalty
+    args.do_sample = getattr(args, "do_sample", True) # whether to generaet summaries during evaluation
+    args.gen_max_len = getattr(args, "gen_max_len", 140) # max length of generated summaries
+    args.gen_min_len = getattr(args, "gen_min_len", 55) # min length of generated summaries
+    args.is_pegasus = getattr(args, "is_pegasus", False) # whether to use Pegasus as the baseline model
+    args.adding = getattr(args, "adding", 0) # used for numerical stability
+    args.eval_interval = getattr(args, "eval_interval", 1000) # evaluation intervals
+    args.num_beams = getattr(args, "num_beams", 4) # number of beams for beam search
+    args.fp16 = getattr(args, "fp16", False)
+    args.train_split = getattr(args, "train_split", "train")
+    args.val_split = getattr(args, "val_split", "val")
+
+
 def cnndm_setting(args):
     # default setting for cnndm
     args.batch_size = getattr(args, 'batch_size', 1)
@@ -21,10 +60,10 @@ def cnndm_setting(args):
     args.score_mode = getattr(args, "score_mode", "log")
     args.datatype = getattr(args, "datatype", "diverse")
     args.dataset = getattr(args, "dataset", "cnndm")
-    args.max_len = getattr(args, "max_len", 120)
+    args.max_summ_len = getattr(args, "max_summ_len", 120)
     args.max_num = getattr(args, "max_num", 16)
     args.smooth = getattr(args, "smooth", 0.1)
-    args.total_len = getattr(args, "total_len", 1024)
+    args.max_doc_len = getattr(args, "max_doc_len", 1024)
     args.length_penalty = getattr(args, "length_penalty", 2.0)
     args.do_sample = getattr(args, "do_sample", True)
     args.gen_max_len = getattr(args, "gen_max_len", 140)
@@ -35,6 +74,9 @@ def cnndm_setting(args):
     args.eval_interval = getattr(args, "eval_interval", 1000)
     args.num_beams = getattr(args, "num_beams", 4)
     args.fp16 = getattr(args, "fp16", True)
+    args.train_split = getattr(args, "train_split", "train")
+    args.val_split = getattr(args, "val_split", "val")
+
 
 def xsum_setting(args):
     # default setting for xsum
@@ -59,10 +101,10 @@ def xsum_setting(args):
     args.score_mode = getattr(args, "score_mode", "log")
     args.datatype = getattr(args, "datatype", "diverse")
     args.dataset = getattr(args, "dataset", "xsum")
-    args.max_len = getattr(args, "max_len", 80)
+    args.max_summ_len = getattr(args, "max_summ_len", 80)
     args.max_num = getattr(args, "max_num", 16)
     args.smooth = getattr(args, "smooth", 0.1)
-    args.total_len = getattr(args, "total_len", 512)
+    args.max_doc_len = getattr(args, "max_doc_len", 512)
     args.length_penalty = getattr(args, "length_penalty", 0.6)
     args.do_sample = getattr(args, "do_sample", True)
     args.gen_max_len = getattr(args, "gen_max_len", 62)
@@ -73,6 +115,9 @@ def xsum_setting(args):
     args.eval_interval = getattr(args, "eval_interval", 1000)
     args.num_beams = getattr(args, "num_beams", 8)
     args.fp16 = getattr(args, "fp16", False)
+    args.train_split = getattr(args, "train_split", "train")
+    args.val_split = getattr(args, "val_split", "val")
+
 
 def abmusu_settings(args):
     # default setting for cnndm
@@ -97,10 +142,10 @@ def abmusu_settings(args):
     args.score_mode = getattr(args, "score_mode", "log")
     args.datatype = getattr(args, "datatype", "diverse")
     args.dataset = getattr(args, "dataset", "abmusu")
-    args.max_len = getattr(args, "max_len", 120) # do not use for training
+    args.max_summ_len = getattr(args, "max_summ_len", 120) # do not use for training
     args.max_num = getattr(args, "max_num", 16)
     args.smooth = getattr(args, "smooth", 0.1)
-    args.total_len = getattr(args, "total_len", 4096)
+    args.max_doc_len = getattr(args, "max_doc_len", 4096)
     args.length_penalty = getattr(args, "length_penalty", 1.0)
     args.do_sample = getattr(args, "do_sample", True)
     args.gen_max_len = getattr(args, "gen_max_len", 140)
@@ -111,3 +156,5 @@ def abmusu_settings(args):
     args.eval_interval = getattr(args, "eval_interval", 100)
     args.num_beams = getattr(args, "num_beams", 4)
     args.fp16 = getattr(args, "fp16", False)
+    args.train_split = getattr(args, "train_split", "train")
+    args.val_split = getattr(args, "val_split", "val")

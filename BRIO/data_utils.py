@@ -12,7 +12,7 @@ def to_cuda(batch, gpuid):
 
 
 class BrioDataset(Dataset):
-    def __init__(self, fdir, model_type, max_len=-1, is_test=False, total_len=512, is_sorted=True, max_num=-1, is_untok=True, is_pegasus=False, is_t5=False, num=-1):
+    def __init__(self, fdir, model_type, max_summ_len=-1, is_test=False, max_doc_len=512, is_sorted=True, max_candidates=-1, is_untok=True, is_pegasus=False, is_t5=False, num=-1):
         """ data format: article, abstract, [(candidiate_i, score_i)] """
         self.isdir = os.path.isdir(fdir)
         if self.isdir:
@@ -34,11 +34,11 @@ class BrioDataset(Dataset):
             self.tok = T5Tokenizer.from_pretrained(model_type, verbose=False)
         else:
             self.tok = BartTokenizer.from_pretrained(model_type, verbose=False)
-        self.maxlen = max_len
+        self.max_summ_len = max_summ_len
         self.is_test = is_test
-        self.total_len = total_len
+        self.max_doc_len = max_doc_len
         self.sorted = is_sorted
-        self.maxnum = max_num
+        self.max_candidates = max_candidates
         self.is_untok = is_untok
         self.is_pegasus = is_pegasus
         self.is_t5 = is_t5
@@ -57,47 +57,56 @@ class BrioDataset(Dataset):
             article = data["article_untok"]
         else:
             article = data["article"]
+
         src_txt = " ".join(article)
-        # src = self.tok.batch_encode_plus([src_txt], max_length=self.total_len, return_tensors="pt", pad_to_max_length=False, truncation=True)
-        src = self.tok([src_txt], max_length=self.total_len, return_tensors='pt', truncation=True)
+        src = self.tok([src_txt], max_length=self.max_doc_len, return_tensors='pt', truncation=True)
         src_input_ids = src["input_ids"]
         src_input_ids = src_input_ids.squeeze(0)
+
         if self.is_untok:
             abstract = data["abstract_untok"]
         else:
             abstract = data["abstract"]
-        if self.maxnum > 0:
-            candidates = data["candidates_untok"][:self.maxnum]
-            _candidates = data["candidates"][:self.maxnum]
+
+        if self.max_candidates > 0:
+            candidates = data["candidates_untok"][:self.max_candidates]
+            _candidates = data["candidates"][:self.max_candidates]
             data["candidates"] = _candidates
+
         if self.sorted:
             candidates = sorted(candidates, key=lambda x:x[1], reverse=True)
             _candidates = sorted(_candidates, key=lambda x:x[1], reverse=True)
             data["candidates"] = _candidates
+
         if not self.is_untok:
             candidates = _candidates
+
         cand_txt = [" ".join(abstract)] + [" ".join(x[0]) for x in candidates]
-        # cand = self.tok.batch_encode_plus(cand_txt, max_length=self.maxlen, return_tensors="pt", pad_to_max_length=False, truncation=True, padding=True)
         cand = self.tok(cand_txt, return_tensors='pt', padding=True)
         candidate_ids = cand["input_ids"]
+
         if self.is_pegasus:
             # add start token
             _candidate_ids = candidate_ids.new_zeros(candidate_ids.size(0), candidate_ids.size(1) + 1)
             _candidate_ids[:, 1:] = candidate_ids.clone()
             _candidate_ids[:, 0] = self.tok.pad_token_id
             candidate_ids = _candidate_ids
+
         if self.is_t5:
             # add start token
             _candidate_ids = candidate_ids.new_zeros(candidate_ids.size(0), candidate_ids.size(1) + 1)
             _candidate_ids[..., 1:] = candidate_ids.clone()
             _candidate_ids[..., 0] = self.tok.pad_token_id
             candidate_ids = _candidate_ids
+
         result = {
             "src_input_ids": src_input_ids, 
             "candidate_ids": candidate_ids,
             }
+
         if self.is_test:
             result["data"] = data
+
         return result
 
 

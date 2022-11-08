@@ -1,10 +1,11 @@
 import os
-from os.path import exists, join
-import json
 import torch
-# from torch.utils.tensorboard import SummaryWriter
+import logging
+
 from tensorboardX import SummaryWriter
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class Recorder():
@@ -27,17 +28,13 @@ class Recorder():
                 for (i, x) in enumerate(models):
                     print(x, file=f)
                     print(file=f)
-        print(args)
-        print()
+        logger.info("{}\n".format(args))
         for (i, x) in enumerate(models):
-            print(x)
-            print()
+            logger.info("{}\n".format(x))
 
     def print(self, x=None):
         if x is not None:
-            print(x, flush=True)
-        else:
-            print(flush=True)
+            logger.info(x)
         if self.log:
             if x is not None:
                 print(x, file=self.f, flush=True)
@@ -47,7 +44,10 @@ class Recorder():
     def plot(self, tag, values, step):
         if self.log:
             self.writer.add_scalars(tag, values, step)
-
+    
+    def write_log(self, logs, step):
+        for k, v in logs.items():
+            self.writer.add_scalar(k, v, step)
 
     def __del__(self):
         if self.log:
@@ -57,5 +57,3 @@ class Recorder():
     def save(self, model, name):
         if self.log:
             torch.save(model.state_dict(), os.path.join(self.dir, name))
-
-

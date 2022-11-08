@@ -1,0 +1,40 @@
+# @package _global_
+config: cnndm
+
+batch_size: 1
+epoch: 100
+report_freq: 100
+accumulate_step: 8
+margin: 0.001
+gold_margin: 0
+gold_weight: 0
+mle_weight: 0.1
+rank_weight: 10
+model_type: facebook/bart-large-cnn
+warmup_steps: 10000
+normalize: true
+grad_norm: 0
+seed: 970903
+no_gold: false
+pretrained:
+max_lr: 2e-3
+scale: 1
+score_mode: log
+datatype: diverse
+dataset: cnndm
+max_summ_len: 120
+max_candidates: 16
+smooth: 0.1
+max_doc_len: 1024
+length_penalty: 2.0
+do_generate: true
+gen_max_len: 140
+gen_min_len: 55
+is_pegasus: false
+is_t5: false
+adding: 0
+eval_interval: 1000
+num_beams: 4
+fp16: true
+train_split: train
+val_split: val

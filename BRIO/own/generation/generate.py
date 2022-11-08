@@ -6,7 +6,7 @@ import logging
 from tqdm import tqdm
 from typing import Optional, Tuple
 
-from .utils import tile, recursive_apply
+from ..utils import tile, recursive_apply
 
 
 def greedy_multiple(
