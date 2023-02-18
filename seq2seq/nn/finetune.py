@@ -70,7 +70,7 @@ def main(cfg: DictConfig):
     for k, v in cfg.items():
         print("{}--> {}".format(k + " " * (40 - len(k)), v))
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.tokenizer_path)
     config = T5Config.from_pretrained(cfg.model_name, gradient_checkpointing=cfg.gradient_checkpointing)
     model = AutoModelForSeq2SeqLM.from_pretrained(cfg.model_name, config=config)
 
@@ -105,8 +105,12 @@ def main(cfg: DictConfig):
         per_device_eval_batch_size=cfg.per_device_eval_batch_size,
         logging_dir=cfg.logging_dir,
         group_by_length=cfg.group_by_length,
-        save_strategy=cfg.save_strategy,
-        evaluation_strategy=cfg.save_strategy,
+        # save_strategy=cfg.save_strategy,
+        # evaluation_strategy=cfg.save_strategy,
+        save_strategy="steps",
+        save_steps=1,
+        evaluation_strategy="steps",
+        eval_steps=1,
         save_total_limit=cfg.save_total_limit,
         fp16=cfg.fp16,
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
