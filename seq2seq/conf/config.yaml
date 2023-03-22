@@ -1,0 +1,28 @@
+model_name: VietAI/vit5-base-vietnews-summarization
+tokenizer_path: VietAI/vit5-base-vietnews-summarization
+train_data_path:
+dev_data_path:
+resume_from_checkpoint:
+output_dir: tmp
+
+# training arguments
+do_train: true
+do_eval: true
+num_train_epochs: 3
+learning_rate: 2e-5
+warmup_ratio: 0.05
+weight_decay: 0.01
+per_device_train_batch_size: 1
+per_device_eval_batch_size: 1
+logging_dir: logs
+group_by_length: false
+save_strategy: epoch
+save_total_limit: 3
+fp16: true
+gradient_accumulation_steps: 8
+logging_steps: 5
+logging_first_step: true
+max_grad_norm: 1.0
+label_smoothing_factor: 0.0
+gradient_checkpointing: true
+generation_max_length: 500
