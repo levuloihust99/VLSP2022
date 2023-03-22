@@ -10,7 +10,7 @@ gold_margin: 0 # margin for ranking loss on gold summaries
 gold_weight: :0 # weight for ranking loss on gold summaries
 mle_weight: 1 # weight for mle loss on gold summaries
 rank_weight: 1 # weight for ranking loss on candidate summaries
-model_type: facebook/bart-large-cnn" # model type
+model_type: facebook/bart-large-cnn # model type
 warmup_steps: 10000 # warmup steps
 normalize: true # normalize predicited likelihood
 grad_norm: 0 # gradient norm
